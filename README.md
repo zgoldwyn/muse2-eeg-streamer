@@ -1,6 +1,7 @@
 # Muse 2 EEG Bridge
 
 A macOS application that streams live EEG data from a Muse 2 headset over Bluetooth Low Energy, decodes the raw packets in C, and visualizes the signals in Python.
+<img width="1112" height="944" alt="Screenshot 2026-07-28 at 6 22 48 PM" src="https://github.com/user-attachments/assets/01650731-bf16-4cc3-81f4-29df52d2ade7" />
 
 ## Overview
 
