@@ -116,12 +116,12 @@ In `muselsl`, commands are written through handle `0x000e`, which corresponds to
 
 Muse 2 legacy EEG channels:
 
-| Channel | UUID | Notes |
-|---|---|---|
-| TP9 | `273e0003-4c4d-454d-96be-f03bac821358` | left ear |
-| AF7 | `273e0004-4c4d-454d-96be-f03bac821358` | left forehead |
-| AF8 | `273e0005-4c4d-454d-96be-f03bac821358` | right forehead |
-| TP10 | `273e0006-4c4d-454d-96be-f03bac821358` | right ear |
+| Channel   | UUID                                   | Notes                |
+| --------- | -------------------------------------- | -------------------- |
+| TP9       | `273e0003-4c4d-454d-96be-f03bac821358` | left ear             |
+| AF7       | `273e0004-4c4d-454d-96be-f03bac821358` | left forehead        |
+| AF8       | `273e0005-4c4d-454d-96be-f03bac821358` | right forehead       |
+| TP10      | `273e0006-4c4d-454d-96be-f03bac821358` | right ear            |
 | Right AUX | `273e0007-4c4d-454d-96be-f03bac821358` | optional, skip first |
 
 For your first implementation, subscribe only to:
@@ -141,14 +141,14 @@ Do not include `RIGHTAUX` until the 4 main EEG channels work.
 
 Useful later, not needed for the first EEG implementation:
 
-| Signal | UUID |
-|---|---|
-| Gyroscope | `273e0009-4c4d-454d-96be-f03bac821358` |
+| Signal        | UUID                                   |
+| ------------- | -------------------------------------- |
+| Gyroscope     | `273e0009-4c4d-454d-96be-f03bac821358` |
 | Accelerometer | `273e000a-4c4d-454d-96be-f03bac821358` |
-| Telemetry | `273e000b-4c4d-454d-96be-f03bac821358` |
-| PPG ambient | `273e000f-4c4d-454d-96be-f03bac821358` |
-| PPG infrared | `273e0010-4c4d-454d-96be-f03bac821358` |
-| PPG red | `273e0011-4c4d-454d-96be-f03bac821358` |
+| Telemetry     | `273e000b-4c4d-454d-96be-f03bac821358` |
+| PPG ambient   | `273e000f-4c4d-454d-96be-f03bac821358` |
+| PPG infrared  | `273e0010-4c4d-454d-96be-f03bac821358` |
+| PPG red       | `273e0011-4c4d-454d-96be-f03bac821358` |
 
 ---
 
@@ -249,13 +249,13 @@ The command format is:
 
 Examples:
 
-| Command | Meaning | Encoded bytes |
-|---|---|---|
-| `d` | start/resume streaming | `02 64 0A` |
-| `h` | stop/halt streaming | `02 68 0A` |
-| `k` | keep alive | `02 6B 0A` |
-| `s` | ask control/status | `02 73 0A` |
-| `v1` | ask device info | `03 76 31 0A` |
+| Command | Meaning                | Encoded bytes |
+| ------- | ---------------------- | ------------- |
+| `d`     | start/resume streaming | `02 64 0A`    |
+| `h`     | stop/halt streaming    | `02 68 0A`    |
+| `k`     | keep alive             | `02 6B 0A`    |
+| `s`     | ask control/status     | `02 73 0A`    |
+| `v1`    | ask device info        | `03 76 31 0A` |
 
 ### C helper for command encoding
 
@@ -740,193 +740,3 @@ if (muse_decode_eeg_packet(bytes, len, &decoded) == 0) {
 ```
 
 ---
-
-## 17. Build Command
-
-Basic compile shape:
-
-```bash
-clang \
-  src/main.c \
-  src/muse_decode.c \
-  src/muse_ble_bridge.m \
-  -framework Foundation \
-  -framework CoreBluetooth \
-  -o muse_c
-```
-
-A starter `Makefile`:
-
-```make
-CC=clang
-CFLAGS=-Wall -Wextra -I src
-FRAMEWORKS=-framework Foundation -framework CoreBluetooth
-
-SRC=src/main.c src/muse_decode.c src/muse_ble_bridge.m
-OUT=muse_c
-
-all:
-	$(CC) $(CFLAGS) $(SRC) $(FRAMEWORKS) -o $(OUT)
-
-clean:
-	rm -f $(OUT) test_decode
-
-test_decode:
-	$(CC) $(CFLAGS) src/muse_decode.c tests/test_decode.c -o test_decode
-	./test_decode
-```
-
----
-
-## 18. How to Capture Real Raw Packets from `muselsl` Before Deleting It
-
-Before removing `muselsl`, capture a few real packets to validate the C decoder.
-
-In `muse.py`, find:
-
-```python
-def _handle_eeg(self, handle, data):
-```
-
-Right before:
-
-```python
-tm, d = self._unpack_eeg_channel(data)
-```
-
-Add:
-
-```python
-print("HANDLE", handle, "RAW", data.hex())
-```
-
-Then run:
-
-```bash
-muselsl stream
-```
-
-Copy at least one line from each channel into notes:
-
-```text
-HANDLE 32 RAW <40 hex chars>
-HANDLE 35 RAW <40 hex chars>
-HANDLE 38 RAW <40 hex chars>
-HANDLE 41 RAW <40 hex chars>
-```
-
-A 20-byte packet should print as **40 hex characters**.
-
-Use those packets as fixtures in `tests/test_decode.c`.
-
----
-
-## 19. What Can Be Ignored for Now
-
-Do not port these yet:
-
-```text
-LSL output
-viewer code
-recording code
-PPG
-accelerometer
-gyroscope
-telemetry
-Athena protocol
-Muse S Gen 3 support
-BlueMuse support
-recursive least squares timestamp correction
-full channel synchronization
-```
-
-Only port:
-
-```text
-UUIDs
-BLE scan/connect/subscribe/write
-command encoding
-start/stop commands
-EEG packet decoder
-sample scaling
-```
-
----
-
-## 20. Validation Checklist
-
-### Decoder validation
-
-- [ ] C decoder compiles.
-- [ ] Dummy packet decodes to 12 samples.
-- [ ] Real packet from `muselsl` decodes without error.
-- [ ] Real decoded values are plausible microvolt values.
-- [ ] Values are multiples of `0.48828125`.
-
-### BLE validation
-
-- [ ] Program sees Muse 2 in BLE scan.
-- [ ] Program connects to Muse 2.
-- [ ] Program discovers `273e0001` control characteristic.
-- [ ] Program discovers `273e0003` through `273e0006` EEG characteristics.
-- [ ] Program subscribes to all four EEG characteristics.
-- [ ] Program writes `02 64 0A` to start streaming.
-- [ ] Program receives 20-byte EEG packets.
-- [ ] Program decodes packets live.
-- [ ] Program writes `02 68 0A` on exit.
-
----
-
-## 21. First Three Milestones
-
-### Milestone 1: Pure C decode
-
-```text
-Input: one 20-byte packet
-Output: packet index + 12 microvolt values
-```
-
-### Milestone 2: BLE visibility
-
-```text
-Your own program prints: Found Muse-XXXX
-```
-
-### Milestone 3: Live decode
-
-```text
-Your own program prints live decoded EEG packets from TP9/AF7/AF8/TP10 without muselsl.
-```
-
----
-
-## 22. Final Minimal Target
-
-Run:
-
-```bash
-make
-./muse_c
-```
-
-Expected output shape:
-
-```text
-Bluetooth powered on
-Scanning...
-Found Muse-3785
-Connected
-Found control characteristic 273e0001...
-Subscribed TP9
-Subscribed AF7
-Subscribed AF8
-Subscribed TP10
-Sent start command: 02 64 0A
-
-TP9  packet=1234  -11.72  47.85  176.27  ...
-AF7  packet=1234  ...
-AF8  packet=1234  ...
-TP10 packet=1234  ...
-```
-
-At that point, the project has replaced the core functionality you needed from `muselsl`.
