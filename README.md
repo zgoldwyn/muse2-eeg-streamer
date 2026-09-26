@@ -19,6 +19,24 @@ Python + PyQtGraph
 Live four-channel visualization
 ```
 
+## CS+AI Research Project
+
+This repository is also the shared codebase for a CS+AI student research project on trustworthy analysis of consumer EEG. The team will build on the working Muse 2 acquisition pipeline to investigate this question:
+
+> On unseen recording sessions, does agreement between mathematical and machine-learning artifact detectors identify reliable Muse 2 EEG more accurately than either method alone?
+
+The primary goal is to collect and independently label EEG artifacts, compare interpretable signal-processing rules with a trained model, and measure both accuracy and retained usable data. If time and data permit, the team will test whether artifact-aware processing improves a controlled mental-workload analysis. Agreement between two detectors is a hypothesis to evaluate, not proof that a signal is clean.
+
+The initial semester scope is:
+
+1. Preserve and document the working recorder.
+2. Save synchronized EEG, session metadata, and event markers.
+3. Create reviewed labels for blinks, jaw or muscle activity, head movement, and headset disturbance.
+4. Compare a mathematical detector, a machine-learning detector, and an agreement-based policy on held-out sessions.
+5. Build a local browser interface for guided recording and evaluated replay.
+
+Live predictions and broader mental-state claims are stretch goals. Raw or identifiable participant recordings must not be committed to this repository.
+
 The four primary EEG channels are:
 
 - TP9
@@ -83,6 +101,18 @@ MuseProject/
 - PySide6
 - PyQtGraph
 
+## Contributing
+
+New contributors should begin with the exercise in [`docs/bootcamp/readme.md`](docs/bootcamp/readme.md). The team workflow is:
+
+1. Start from an up-to-date `main` branch.
+2. Create one short-lived branch for one task.
+3. Make a focused change and test it locally.
+4. Open a pull request describing what changed and how it was checked.
+5. Request review before merging into `main`.
+
+Do not commit virtual environments, build products, Finder metadata, generated recordings, or participant data. Preserve raw research data separately from processed outputs, and do not change labels or evaluation data to make a model perform better.
+
 ## Build the Scanner
 
 From the `muse2-c` directory:
@@ -141,7 +171,7 @@ microvolts = (raw - 2048) × 0.48828125
 
 ## Project Status
 
-The acquisition and visualization pipeline is working as a research prototype.
+The acquisition and visualization pipeline is working as a research prototype. The CS+AI research work is beginning with team onboarding, recorder documentation, experiment design, and data-contract planning.
 
 Planned improvements include:
 

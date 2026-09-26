@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 print("Looking for an EEG stream...")
 
 
-buffers = {
+buffers = { # buffer to store most recent 512 values for each electrode
     "TP9": deque(maxlen=512),
     "AF7": deque(maxlen=512),
     "AF8": deque(maxlen=512),
@@ -23,7 +23,7 @@ def read_eeg_stream():
     project_root = Path(__file__).resolve().parents[1]
     scanner_path = project_root / "muse2-c" / "build" / "muse2_scan"
 
-    process = subprocess.Popen(
+    process = subprocess.Popen( # this runs the scanner executale and captures its output
         [str(scanner_path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -35,10 +35,10 @@ def read_eeg_stream():
         print("Could not read EEG scanner output.")
         return
 
-    for line in process.stdout:
+    for line in process.stdout:# read the output line by line (one packet per line)
         line = line.strip()
 
-        if not line.startswith("EEG,"):
+        if not line.startswith("EEG,"): #each line format defined in C stdout is EEG,<electrode>,<packet_index>,<microvolts>
             continue
 
         split_line = line.split(",")
@@ -56,7 +56,7 @@ def read_eeg_stream():
             print(f"Error parsing line: {line}")
             continue
 
-        if electrode in buffers:
+        if electrode in buffers: # append the microvolts value to the corresponding electrode buffer
             buffers[electrode].append(microvolts)
 
 

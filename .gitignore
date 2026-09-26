@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Native build products
+muse2-c/build/
+*.o
+
+# Local tooling
+.vscode/
+.idea/
+
+# Research recordings and participant data must not be committed here
+data/
+recordings/
+*.edf
+*.bdf
+*.fif
+

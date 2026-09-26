@@ -84,6 +84,6 @@ void muse2_c_on_eeg_packet(const char *characteristic_uuid, const unsigned char 
         return;
     }
     printf("Decoded EEG packet: index=%u, raw[0]=%u, microvolts[0]=%.2f\n", out.packet_index, out.raw[0], out.microvolts[0]);
-    printf("EEG,%s,%u,%.4f\n",buf,out.packet_index,out.microvolts[0]);  
+    printf("EEG,%s,%u,%.4f\n",buf,out.packet_index,out.microvolts[0]);  // print to stdout in a format to be parsed by the Python script (EEG,<electrode>,<packet_index>,<microvolts>)
 }
 
