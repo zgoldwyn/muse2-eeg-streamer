@@ -1,3 +1,4 @@
+hi zach
 # Contributor Bootcamp
 
 This exercise is a quick low risk bootcamp on git and github workflow before we begin actual work on the project. 
