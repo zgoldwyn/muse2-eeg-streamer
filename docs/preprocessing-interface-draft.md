@@ -101,3 +101,27 @@ The future recorder must provide the four required channels using their exact na
 After `validate_eeg_window` succeeds, Samuel's future feature functions may assume all four required channels exist, have the same positive number of samples, and contain finite numeric values. They should not assume the signals are artifact-free, filtered, re-referenced, normalized, or continuous in time.
 
 The team has intentionally not yet chosen filtering settings, re-referencing, resampling, window duration, gap handling, channel-quality thresholds, artifact-label rules, or window-segmentation policy. Before real preprocessing begins, the team should at least agree on the recorder's gap/timing representation and the window duration and boundary policy.
+
+## Synthetic-session loader and fixed-time windows
+
+`load_synthetic_session` reads a CSV with these required columns:
+
+```text
+session_id,elapsed_s,channel,packet_index,sample_in_packet,microvolts
+```
+
+It also requires metadata containing `session_id`, `sampling_rate_hz`, and `samples_per_packet`. The loader preserves timestamps and rejects unknown channels, nonfinite values or times, invalid packet/sample positions, rows from another session, and duplicate samples. It never fills missing values or rewrites timestamps.
+
+`create_fixed_windows` returns two-second, non-overlapping windows such as `[0, 2)`, `[2, 4)`, and `[4, 6)`. At 256 Hz, each complete window requires 512 samples per channel. Each returned window includes its stable ID, session ID, start/end time, sampling rate, samples, timestamps, validity status, and invalid reasons.
+
+Equal counts do not prove time alignment or a gap-free recording. Valid windows require aligned, contiguous packet/sample positions and timestamps that match across channels within a 0.0005-second rounding tolerance. Missing, incomplete, mismatched, gapped, and trailing partial windows remain in the output as invalid; no samples are shifted, repeated, zero-filled, or interpolated.
+
+For a valid window, Sam’s future feature code may assume all four required channels have exactly 512 finite numeric samples, aligned positions, and matching timestamps within that tolerance. It must not assume the signal is artifact-free, filtered, normalized, or clinically meaningful.
+
+## Optional reference-label interval join
+
+`join_reference_label_intervals` accepts independently reviewed reference intervals following Shrinithi’s label guide. It does not use observer prompts, markers, or either detector’s output as labels.
+
+A label is assigned only when reviewed interval(s) fully cover the valid window and agree on one label. Clean therefore requires full clean coverage; a missing label never means clean. The project has not selected a final partial-overlap rule, so partial artifact overlap, uncertain boundaries, and conflicting annotations remain unassigned for adjudication rather than being guessed.
+
+Technically invalid windows are reported as `invalid` with their technical reasons. Invalid and uncertain windows remain in the summary and are excluded from primary metrics.
