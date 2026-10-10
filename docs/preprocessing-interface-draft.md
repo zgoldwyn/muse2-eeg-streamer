@@ -54,6 +54,8 @@ Each Muse channel comes from a different electrode location. Consistent names pr
 
 At the same sample rate, sample index *i* in each channel should represent the same instant in time. Equal lengths allow the four signals to be aligned and processed together. Different lengths may indicate dropped samples or another recording issue.
 
+However, equal sample counts alone do not prove that channels are truly time-aligned or that the recording is gap-free. `validate_eeg_window` checks only the channel names, sequence lengths, and sample values; it does not inspect timestamps or detect dropped samples. The future recorder must provide timing and gap information separately.
+
 ### Missing samples and gaps
 
 Missing samples or time gaps must not be silently filled with zeros, repeated values, or interpolation. Filling changes the real signal and could hide an artifact or look like brain activity. The future recorder should preserve timing information and explicitly report gaps or dropped samples.
