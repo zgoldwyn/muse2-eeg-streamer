@@ -1,0 +1,110 @@
+{
+  "protocolId": "eeg-artifact-observation-v1",
+  "displayName": "EEG Artifact Observation Protocol",
+  "timingLabels": {
+    "proposedParticipantProtocol": "Suggested timing for a future participant protocol",
+    "demonstrationMode": "Shortened demonstration timing for rapid prototype testing"
+  },
+  "phases": [
+    {
+      "phaseId": "introduction",
+      "displayName": "Introduction to experiment",
+      "participantInstruction": "Listen while the operator explains the session. Sit comfortably and remain still.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 30,
+        "demonstrationModeSeconds": 5
+      },
+      "eventCode": "PHASE_INTRO"
+    },
+    {
+      "phaseId": "headset-setup",
+      "displayName": "Headset fitting and signal check",
+      "participantInstruction": "Remain relaxed while the headset fit and electrode contact are checked.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 45,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "PHASE_SETUP"
+    },
+    {
+      "phaseId": "quiet-baseline",
+      "displayName": "Baseline quiet period",
+      "participantInstruction": "Keep your head still, relax your face, and look straight ahead without speaking.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 60,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "QUIET_BASELINE"
+    },
+    {
+      "phaseId": "eye-blink-prompt",
+      "displayName": "Hard and soft blink prompt",
+      "participantInstruction": "Blink softly twice, pause, then close your eyes firmly for one hard blink and relax.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 30,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "PROMPT_BLINK_SOFT_HARD"
+    },
+    {
+      "phaseId": "quiet-after-blinks",
+      "displayName": "Quiet period after blink prompt",
+      "participantInstruction": "Return to looking straight ahead. Keep your head still and relax your face.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 30,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "QUIET_POST_BLINK"
+    },
+    {
+      "phaseId": "facial-muscle-prompt",
+      "displayName": "Raise-eyebrows prompt",
+      "participantInstruction": "Raise both eyebrows, hold briefly, then lower them and relax your forehead.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 20,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "PROMPT_RAISE_EYEBROWS"
+    },
+    {
+      "phaseId": "quiet-after-eyebrows",
+      "displayName": "Quiet period after eyebrow prompt",
+      "participantInstruction": "Relax your face, remain still, and look straight ahead.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 30,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "QUIET_POST_EYEBROWS"
+    },
+    {
+      "phaseId": "head-movement-prompt",
+      "displayName": "Gentle head-movement prompt",
+      "participantInstruction": "Gently move your head all the way to the right, then all the way to the left, and return to center.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 30,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "PROMPT_HEAD_RIGHT_LEFT"
+    },
+    {
+      "phaseId": "quiet-after-movement",
+      "displayName": "Quiet period after head movement",
+      "participantInstruction": "Return your head to center, remain still, and relax.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 30,
+        "demonstrationModeSeconds": 10
+      },
+      "eventCode": "QUIET_POST_HEAD_MOVE"
+    },
+    {
+      "phaseId": "ending",
+      "displayName": "Ending procedure",
+      "participantInstruction": "Remain seated while the operator ends the recording and prepares to remove the headset.",
+      "suggestedDuration": {
+        "proposedParticipantProtocolSeconds": 15,
+        "demonstrationModeSeconds": 5
+      },
+      "eventCode": "PHASE_END"
+    }
+  ]
+}

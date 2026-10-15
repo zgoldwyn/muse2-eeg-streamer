@@ -1,0 +1,10 @@
+{
+  "description": "Easily manage and customize session details with editable fields for session ID, participant name, and visit information, enhancing organization for users.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
