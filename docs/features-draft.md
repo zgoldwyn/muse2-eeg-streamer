@@ -358,7 +358,7 @@ values with reasons. Existing preprocessing tests are also run by this command.
 * Feature values will be calculated separately for each channel.
 * Shrinithi’s reference labels will remain separate from the feature calculations.
 * Channels use the same sampling rate.
-* Unrealistic samples that are still numerical (something like -478362462837) have been handled in pre-processing.
+* Namit's validator checks that samples are finite
 * Peak-to-peak and maximum adjacent jump are useful indicators of unusual signal behavior.
 
 ## Ideas for Future Features:
