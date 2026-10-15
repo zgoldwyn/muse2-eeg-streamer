@@ -229,6 +229,13 @@ class EvaluationMetricsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unrecognized decision"):
             evaluate_predictions(REFERENCE_RECORDS, bad_prediction)
 
+    def test_malformed_prediction_record_raises_helpful_error(self) -> None:
+        malformed_predictions = MATHEMATICAL_PREDICTIONS.copy()
+        malformed_predictions[0] = {"window_id": "demo-001-w01"}
+
+        with self.assertRaisesRegex(ValueError, "unrecognized decision"):
+            evaluate_predictions(REFERENCE_RECORDS, malformed_predictions)
+
     def test_second_detector_and_combined_rule(self) -> None:
         result = compare_detectors(
             REFERENCE_RECORDS,
