@@ -388,3 +388,209 @@ EEG,TP9,81,1,-58.1055
 ```
 
 Update `live_eeg.py` to parse the new 5-field line and keep the packet index. This one change provides every field of the proposed CSV format except `session_id` and `elapsed_s`. It should come with a test, and with a decision on whether to `fflush(stdout)` after each packet.
+
+---
+
+# Week 2: First session recorder
+
+Everything below was tested with **synthetic data only**. No headset, Bluetooth, C scanner or participant data was used. The C streamer was not changed.
+
+New files:
+
+- [`eeg_app/recording.py`](../eeg_app/recording.py), in four sections:
+  - **Writing:** `SampleRecord`, `SessionWriter`, `record_session`
+  - **Synthetic:** `synthetic_records`, a record source that reproduces `scratch/benjamin/synthetic_eeg.csv`
+  - **Reading:** `read_session`, `check_session`, `format_report` (adapted from `scratch/benjamin/read_synthetic_session.py`)
+  - **Demo:** `python3 -m eeg_app.recording`
+- [`tests/test_recording.py`](../tests/test_recording.py)
+
+## Part 1: Timestamping the EEG data
+
+### The three approaches
+
+- **Computer receipt time.** Read the computer's clock when each Bluetooth packet arrives. All 12 samples in the packet share that time, unless they are spread out afterwards.
+- **Sample-based timing.** Calculate each sample's time from its packet index, its position in the packet, and the nominal 256 Hz rate. This is what the synthetic files use today:
+  `elapsed_s = packets_since_first × 12/256 + sample_in_packet/256`
+- **Combined.** Save the sample-based time and the computer receipt time side by side.
+
+### Pros and cons
+
+| | Computer receipt time | Sample-based timing | Combined |
+|---|---|---|---|
+| **Pros** | Simple. Uses the same clock as the software that shows prompts. Shows how long a disconnect really lasted. | Smooth: samples are exactly 1/256 s apart, which filtering and windowed features expect. Repeatable: the same packets always give the same times. Gap sizes are exact. | Keeps the strengths of both. The two clocks can be compared to measure drift and delay, and to convert event times into sample time. |
+| **Cons** | Uneven: bursts and delays end up in the data. The 12 samples in a packet need made-up times between arrivals. Measures when the packet arrived, not when the signal happened. | Assumes the headset runs at exactly 256 Hz. Can't tell how long a disconnect lasted. No link to the computer's clock, so events can't be placed on it directly. | Two time columns to store, explain and keep consistent. Needs a rule for when they disagree. The C layer doesn't capture arrival times yet. |
+
+### How each approach handles the four problems
+
+| Problem | Computer receipt time | Sample-based timing | Combined |
+|---|---|---|---|
+| **Bluetooth delays and bursts.** Packets can sit in Bluetooth or pipe buffers and then arrive together. (Limitation 8 above: C's `printf` output is probably block-buffered when piped.) | **Affected.** A burst gives several packets almost the same time, then a jump. Errors of tens of milliseconds are plausible. | **Not affected.** Times come from the packet index, not from when it arrived. | Sample time is unaffected. The receipt column records the bursts, which is useful for diagnosing them. |
+| **Missing packets and index wraparound** (16-bit index, 65535 → 0 about every 51.2 minutes) | A gap shows up as a time jump, but its size is noisy, so the packet index is still needed to count the missing packets. Wraparound doesn't affect the clock. | A gap is exact: `(next − previous) mod 65536 − 1` packets missing. A disconnect long enough to wrap the index, or a headset that restarts its count after reconnecting, gives a wrong time for everything after it. | The receipt time shows how long a long gap really was, and the index gives the exact count for short gaps. Each one checks the other. |
+| **Headset clock vs computer clock.** The two run on separate oscillators, so they drift apart. For example, a 50 ppm difference is about 0.18 s per hour. | Follows the computer clock, so drift isn't visible. | Follows the headset clock but is labelled as nominal 256 Hz, so drift slowly builds up into an error. | Drift can be measured, for example by fitting a straight line of receipt time against sample time, and then corrected. |
+| **Aligning with prompts and observer markers** | Easy if prompts and markers use the same clock. Accurate only to within the delay and burst size. | Prompts are timed on the computer, so they can't be placed in sample time without a link between the clocks. | The receipt column provides that link: convert a prompt's computer time into sample time using the fitted line. |
+
+Observer markers also include human reaction time (a few hundred ms). That is much larger than any of the clock effects above, whichever approach is chosen.
+
+### Wall clock vs monotonic clock
+
+- A **wall clock** gives the calendar date and time, for example Python's `time.time()` or `datetime.now(timezone.utc)`. It answers "when did this happen?", but the operating system can change it: network time (NTP) corrections, manual changes, or a computer with the wrong time. If it jumps backwards in the middle of a recording, a later sample can get an earlier time than an earlier one.
+- A **monotonic clock**, for example `time.monotonic()` or `time.perf_counter()`, only ever moves forward at a steady rate. Its starting point is arbitrary, so the values mean nothing as dates and can't be compared between computers or across reboots, but the difference between two readings is a reliable duration. (On macOS it may not advance while the computer is asleep, so a recording laptop must not sleep.)
+- **Rule for this project:** read the wall clock **once**, at the start of a session (`started_at_utc` in metadata), so you know when the recording happened. Measure **every** time within a session with the monotonic clock, or with the sample count.
+
+### Recommendation
+
+**Start with the combined approach.** `elapsed_s` stays sample-based, as it is now, because analysis needs evenly spaced samples. A computer receipt time from a monotonic clock is added beside it once the live adapter exists, and events and observer markers use that same monotonic clock.
+
+- **What this week's code does:** it saves the sample-based `elapsed_s` supplied by the data source unchanged, and records `"timing_method": "packet_index_estimate"` in metadata. The CSV format is unchanged from the draft. A receipt-time column would be a schema version bump (0.2) once there is real arrival data to put in it.
+- **Main limitation:** sample-based time assumes exactly 256 Hz and can't measure how long a disconnect lasted. Until receipt times exist, a long disconnect, or a reconnect where the headset restarts its packet count, makes every time after it unreliable, and events can only be lined up approximately.
+- **Questions to settle before implementing:**
+  1. **Where is arrival time captured?** In the Objective-C/C callback, where the packet actually arrives (most accurate, but needs C changes, to coordinate with Zach), or in Python when the line is read (easier, but it would include pipe buffering unless C calls `fflush`)?
+  2. **What does the Muse 2 do to the packet index after a reconnect:** continue, or start again from 0? This needs checking on hardware.
+  3. Should every reconnect start a new numbering for `elapsed_s` (a "segment"), or should times continue across the gap?
+
+## Part 2: Session writer (`eeg_app/recording.py`)
+
+### Data source kept separate
+
+The writer only accepts an iterable of `SampleRecord(channel, packet_index, sample_in_packet, microvolts, elapsed_s)`. It doesn't know where the records come from:
+
+```text
+synthetic_records()   ─┐
+CSV replay (future)   ─┼─▶ SampleRecord ─▶ SessionWriter ─▶ eeg.csv + metadata.json
+live adapter (future) ─┘
+```
+
+A live adapter only needs to turn each `EEG,...` line from the scanner into `SampleRecord`s.
+
+### Behaviour
+
+```python
+from eeg_app.recording import record_session, synthetic_records
+
+session_dir = record_session(synthetic_records(), "data/sessions", "demo-001")
+```
+
+| Step | What happens |
+|---|---|
+| Start | Creates `<sessions_dir>/<session_id>/` with `mkdir(exist_ok=False)`. If it already exists, it raises `SessionExistsError` and **writes nothing**. The session ID is limited to letters, digits, `.`, `_` and `-`, so it can't escape into another folder (for example `../x`). |
+| | Writes `metadata.json` with `status: "recording"`, then creates `eeg.csv` in exclusive mode (`"x"`) with the draft header. |
+| Each record | Validated, then appended and flushed. Values and times are written with Python's `repr`, so they read back as **exactly** the same floats. (The scratch CSV used 6 decimal places, which isn't exact.) |
+| Normal end | Syncs the CSV to disk, then sets `status: "complete"`, `ended_at_utc` and `eeg_row_count`. |
+| Input raises (for example a disconnect) or a record is rejected | Rows already written are **kept**. Metadata gets `status: "interrupted"` and a `stop_reason`. Raises `SessionInterruptedError`, with a message such as: `Recording stopped: ConnectionError: headset disconnected. Kept 50 sample row(s) already written in .../drop-001 and marked the session 'interrupted'.` The original error is attached as `__cause__`. |
+| Ctrl+C (`KeyboardInterrupt`) | The session is marked `interrupted` in the same way, and the `KeyboardInterrupt` is passed on unchanged. |
+| Process killed / power loss | Nothing can run, so metadata is left at `status: "recording"`. A reader treats this as interrupted. Metadata is always written to a temporary file and then renamed, so `metadata.json` is never half-written. |
+
+**Rejected records** (`InvalidRecordError`, which interrupts the session as described above):
+
+- an unknown channel
+- `packet_index` that isn't an integer from 0 to 65535
+- `sample_in_packet` that isn't an integer from 0 to 11
+- `microvolts` that isn't a finite number (NaN, ±infinity, text or bool)
+- `elapsed_s` that isn't a finite number ≥ 0
+- a duplicate `(channel, packet, sample_in_packet)`
+- a packet that steps backwards (a repeated or out-of-order packet)
+
+Gaps are **allowed and left as missing rows**. They are never filled with zeros.
+
+Stopping on the first bad record is deliberately strict for now. For live recording, the team may prefer to log a bad record and continue. That is an open question.
+
+### `metadata.json`
+
+```json
+{
+  "schema_version": "0.1",
+  "session_id": "demo-001",
+  "status": "complete",
+  "started_at_utc": "2026-10-15T23:10:04Z",
+  "ended_at_utc": "2026-10-15T23:10:04Z",
+  "sample_rate_hz": 256,
+  "channels": ["TP9", "AF7", "AF8", "TP10"],
+  "units": "microvolts",
+  "timing_method": "packet_index_estimate",
+  "data_source": "synthetic",
+  "eeg_row_count": 144,
+  "stop_reason": null
+}
+```
+
+`data_source` labels synthetic sessions so they can never be mistaken for real recordings.
+
+## Part 3: Read-back check (`eeg_app/recording.py`, Reading section)
+
+`read_session(dir)` parses both files and **rejects** anything malformed, naming the CSV row (row 1 is the header):
+
+- a missing column
+- a value that isn't a number
+- NaN or infinity
+- a packet index or sample position out of range
+- an unknown channel
+- a row cut off mid-write
+
+It uses the same `validate_record` rules as the writer.
+
+`check_session(saved, expected_records=None)` **reports** on the data that was read:
+
+| Check | How it's reported |
+|---|---|
+| Saved values match the input | When `expected_records` is given, the records are compared exactly. The first differing sample is named per channel. |
+| Sample order within each channel | Packets must move forward (wraparound allowed), and positions must increase within a packet. |
+| Each packet has positions 0–11 | Listed in `incomplete_packets`, for example the last packet of an interrupted session. |
+| The deliberate gap stays missing | `missing_packets`, for example `{102: ["TP9", "AF7", "AF8", "TP10"]}`. A gap is **not** counted as a problem. |
+| Duplicates | `duplicates`, kept separate from missing packets. The writer refuses to write duplicates, but the reader still checks for them, because a file can be edited or merged by hand. |
+| Metadata matches the file | `session_id` (rows, metadata and folder name), `eeg_row_count`, and `status == "complete"`. |
+
+The 12 rows that share one packet index are one packet, not duplicates. A duplicate is only the same `(channel, packet, sample_in_packet)` appearing twice within the same packet.
+
+## Part 4: Tests and demonstration
+
+### Demo (one command, no headset)
+
+```bash
+python3 -m eeg_app.recording
+```
+
+```text
+SYNTHETIC TEST: no headset or live data was used.
+Saved to: <temporary folder>/demo-001
+Session:  demo-001 (status: complete, source: synthetic)
+144 sample rows total
+36 sample rows per channel
+Packet 102 missing on all four channels
+Duplicate samples: 0
+Read-back check: PASSED
+```
+
+The session goes into a temporary folder that is deleted afterwards. To keep it for inspection, add `--sessions-dir data/sessions`. (`data/` is ignored by Git.)
+
+### Tests
+
+```bash
+python3 -m unittest tests.test_recording -v
+```
+
+`tests/test_recording.py` writes only to `tempfile.TemporaryDirectory()`. It covers:
+
+- **Saving and reopening a valid session**, including every metadata field, the unchanged CSV header, and a check that the synthetic source matches `scratch/benjamin/synthetic_eeg.csv`.
+- **Keeping a deliberate packet gap:**
+  - packet 102 missing on all channels
+  - a gap on one channel only
+  - wraparound with no gap
+  - a gap across wraparound
+- **Refusing an existing session directory**, including an empty one. The existing data is left byte-for-byte unchanged. Unsafe session IDs are also refused.
+- **Handling an interrupted input stream:**
+  - a generator that raises `ConnectionError` after 50 rows: the 50 rows are kept, the session is marked interrupted, and the incomplete last packet is reported
+  - Ctrl+C
+  - an empty input
+- **Rejecting duplicates:** a repeated sample, and a repeated earlier packet. The reader also reports a hand-added duplicate separately from the gap.
+- **Rejecting malformed or nonfinite values:** 14 bad-record cases in the writer, plus NaN, infinity, text, out-of-range and cut-off rows in the reader.
+
+All tests are **synthetic tests**. They show that the writer and reader work, not that live recording works.
+
+### Remaining live-recording limitations
+
+1. **The C streamer still prints only `microvolts[0]`**, 1 of the 12 samples, and no sample position. A live adapter can't produce full-rate `SampleRecord`s until `muse2_events.c` prints all 12 samples (see "Recommended next implementation step" above). This is to coordinate with Zach.
+2. **No live adapter exists yet.** Nothing turns scanner output into `SampleRecord`s, and `live_eeg.py` doesn't use the writer.
+3. **No arrival times.** Live sessions would have the sample-based `elapsed_s` only, with the limitations described in Part 1.
+4. **No `events.csv` yet**, so prompts and markers aren't saved.
+5. **Stopping on the first bad record** suits tests. A live recorder may need to log the bad record and keep going instead.
+6. **Not tested on hardware:** throughput at about 1,024 rows per second with a flush after every row, behaviour on reconnect, and pipe buffering.
