@@ -15,19 +15,16 @@ from pathlib import Path
 from eeg_app.recording import (
     EEG_COLUMNS,
     InvalidRecordError,
-    SampleRecord,
     SessionExistsError,
+    SessionFormatError,
     SessionInterruptedError,
     SessionWriter,
-    record_session,
-)
-from eeg_app.session_reader import (
-    SessionFormatError,
     check_session,
     format_report,
     read_session,
+    record_session,
+    synthetic_records,
 )
-from eeg_app.synthetic import synthetic_records
 
 SCRATCH_CSV = Path(__file__).resolve().parents[1] / "scratch" / "benjamin" / "synthetic_eeg.csv"
 

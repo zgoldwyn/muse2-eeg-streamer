@@ -397,10 +397,11 @@ Everything below was tested with **synthetic data only**. No headset, Bluetooth,
 
 New files:
 
-- [`eeg_app/recording.py`](../eeg_app/recording.py): `SampleRecord`, `SessionWriter`, `record_session`
-- [`eeg_app/session_reader.py`](../eeg_app/session_reader.py): `read_session`, `check_session`, `format_report` (adapted from `scratch/benjamin/read_synthetic_session.py`)
-- [`eeg_app/synthetic.py`](../eeg_app/synthetic.py): a synthetic record source that reproduces `scratch/benjamin/synthetic_eeg.csv`
-- [`eeg_app/demo_recording.py`](../eeg_app/demo_recording.py): the one-command demonstration
+- [`eeg_app/recording.py`](../eeg_app/recording.py), in four sections:
+  - **Writing:** `SampleRecord`, `SessionWriter`, `record_session`
+  - **Synthetic:** `synthetic_records`, a record source that reproduces `scratch/benjamin/synthetic_eeg.csv`
+  - **Reading:** `read_session`, `check_session`, `format_report` (adapted from `scratch/benjamin/read_synthetic_session.py`)
+  - **Demo:** `python3 -m eeg_app.recording`
 - [`tests/test_recording.py`](../tests/test_recording.py)
 
 ## Part 1: Timestamping the EEG data
@@ -464,8 +465,7 @@ A live adapter only needs to turn each `EEG,...` line from the scanner into `Sam
 ### Behaviour
 
 ```python
-from eeg_app.recording import record_session
-from eeg_app.synthetic import synthetic_records
+from eeg_app.recording import record_session, synthetic_records
 
 session_dir = record_session(synthetic_records(), "data/sessions", "demo-001")
 ```
@@ -515,7 +515,7 @@ Stopping on the first bad record is deliberately strict for now. For live record
 
 `data_source` labels synthetic sessions so they can never be mistaken for real recordings.
 
-## Part 3: Read-back check (`eeg_app/session_reader.py`)
+## Part 3: Read-back check (`eeg_app/recording.py`, Reading section)
 
 `read_session(dir)` parses both files and **rejects** anything malformed, naming the CSV row (row 1 is the header):
 
@@ -546,7 +546,7 @@ The 12 rows that share one packet index are one packet, not duplicates. A duplic
 ### Demo (one command, no headset)
 
 ```bash
-python3 -m eeg_app.demo_recording
+python3 -m eeg_app.recording
 ```
 
 ```text
