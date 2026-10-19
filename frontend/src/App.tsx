@@ -1,5 +1,13 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import protocol from "./protocol.json";
+import sessionMetadataFixture from "./session-metadata.json";
+
+type SessionMetadata = {
+  nominal_sample_rate_hz: number;
+  samples_per_packet: number;
+};
+
+const syntheticSessionMetadata: SessionMetadata = sessionMetadataFixture;
 
 const channels = [
   { name: "TP9", samples: "99.8%" },
@@ -54,7 +62,9 @@ type Marker = {
     | "observer_marker"
     | "headset_adjustment"
     | "operator_note"
-    | "marker_correction";
+    | "marker_correction"
+    | "recording_paused"
+    | "recording_resumed";
   label: string;
   source: "protocol" | "operator";
   type: string;
@@ -155,7 +165,7 @@ type SessionDetails = {
 
 type SessionOutcome = "Completed" | "Incomplete" | "Aborted";
 
-type SessionRecord = {
+type SessionRecord = SessionMetadata & {
   elapsed: number;
   markers: Marker[];
   phaseTimes: number[];
@@ -247,9 +257,14 @@ function SetupScreen({
         </div>
         <div className="h-px bg-[#e5e7eb]" />
         <section className="flex flex-col items-start gap-3">
-          <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
-            Headset Connection
-          </h2>
+          <div className="flex w-full items-center justify-between gap-4">
+            <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
+              Headset Connection
+            </h2>
+            <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
+              Simulated readings · Not live
+            </div>
+          </div>
           <div className="flex items-center gap-2 rounded-full bg-[#ecfdf5] px-4 py-2">
             <img src="/assets/b215c.svg" alt="" width="8" height="8" />
             <span className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#065f46]">
@@ -259,14 +274,19 @@ function SetupScreen({
         </section>
         <div className="h-px bg-[#e5e7eb]" />
         <section className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
-              Channel Status
-            </h2>
-            <p className="text-[13px] leading-6 text-[#6b7280]">
-              Signal quality: Good, Fair, Poor, or No signal. Samples received =
-              unique samples / expected samples ×100 over the last 10 seconds.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1.5">
+              <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
+                Channel Status
+              </h2>
+              <p className="text-[13px] leading-6 text-[#6b7280]">
+                Signal quality: Good, Fair, Poor, or No signal. Samples received =
+                unique samples / expected samples ×100 over the last 10 seconds.
+              </p>
+            </div>
+            <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
+              Simulated readings · Not live
+            </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {channels.map((channel) => (
@@ -287,9 +307,6 @@ function SetupScreen({
           />
         </label>
         <div className="flex flex-col items-start gap-3">
-          <div className="rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
-            Simulated readings · Not live
-          </div>
           <button type="button" className="primary-button" onClick={onBegin}>
             <img src="/assets/399bb.svg" alt="" width="16" height="16" />
             Begin Session
@@ -396,7 +413,7 @@ function StatusStrip() {
       </div>
       <span>Signal <strong className="text-[#1e293b]">Excellent</strong></span>
       <span>Battery <strong className="text-[#16a34a]">78%</strong></span>
-      <span className="ml-auto text-[10px] font-semibold uppercase text-[#94a3b8]">
+      <span className="text-[10px] font-semibold uppercase text-[#94a3b8]">
         Channel contact
       </span>
       {["TP9 Good", "AF7 Fair", "AF8 Good", "TP10 Good"].map((status, index) => (
@@ -408,6 +425,9 @@ function StatusStrip() {
       <span className="flex items-center gap-1 rounded border border-[#fde68a] bg-[#fef3c7] px-2 py-1 text-[#92400e]">
         <img src="/assets/6482e.svg" alt="" width="12" height="12" />
         AF7 contact reduced — check electrode
+      </span>
+      <span className="ml-auto shrink-0 rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] font-semibold uppercase text-[#64748b]">
+        Simulated data
       </span>
     </div>
   );
@@ -500,8 +520,8 @@ function RecordingControls({
             {isRunning ? "RECORDING" : hasStarted ? "PAUSED" : "READY"}
           </strong>
           <p>Session clock: <b className="text-[#1e293b]">{formatTime(elapsed)}</b></p>
-          <p>Samples: <b className="text-[#1e293b]">{(protocolElapsed * 256).toLocaleString()}</b></p>
-          <p>Rate: <b className="text-[#1e293b]">256 Hz</b></p>
+          <p>Samples: <b className="text-[#1e293b]">{(protocolElapsed * syntheticSessionMetadata.nominal_sample_rate_hz).toLocaleString()}</b></p>
+          <p>Nominal rate: <b className="text-[#1e293b]">{syntheticSessionMetadata.nominal_sample_rate_hz} Hz</b></p>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -785,15 +805,46 @@ function Dashboard({
     (marker) =>
       marker.source === "operator" &&
       marker.event_type !== "marker_correction" &&
+      marker.event_type !== "recording_paused" &&
+      marker.event_type !== "recording_resumed" &&
       !correctedEventIds.has(marker.event_id),
   );
   const lastCorrectableEvent =
     correctableEvents[correctableEvents.length - 1] ?? null;
 
+  const recordRecordingControl = (
+    eventType: "recording_paused" | "recording_resumed",
+    label: string,
+  ) => {
+    const markerType = markerTypes[4];
+    setMarkers((currentMarkers) => [
+      ...currentMarkers,
+      {
+        event_id: createEventId(),
+        session_id: details.sessionId || "unspecified-session",
+        elapsed_s: elapsed,
+        event_type: eventType,
+        label,
+        source: "operator",
+        type: markerType.name,
+        color: markerType.color,
+      },
+    ]);
+  };
+
   const play = () => {
-    if (!hasStarted) recordPhaseTransition(0);
+    if (!hasStarted) {
+      recordPhaseTransition(0);
+    } else {
+      recordRecordingControl("recording_resumed", "Recording resumed");
+    }
     setHasStarted(true);
     setIsRunning(true);
+  };
+
+  const pause = () => {
+    recordRecordingControl("recording_paused", "Recording paused");
+    setIsRunning(false);
   };
 
   const transitionToPhase = (phaseIndex: number) => {
@@ -804,12 +855,21 @@ function Dashboard({
 
   const finishSession = (aborted: boolean) => {
     setIsRunning(false);
+    const finalPhaseIndex = phases.length - 1;
+    const finalPhaseDuration =
+      protocolPhases[finalPhaseIndex].suggestedDuration.demonstrationModeSeconds;
+    const finalPhaseCompleted =
+      currentPhase === finalPhaseIndex &&
+      phaseTimes[finalPhaseIndex] >= finalPhaseDuration;
     const completedPhases = hasStarted
       ? aborted
         ? Math.max(0, currentPhase)
-        : Math.min(phases.length, currentPhase + 1)
+        : currentPhase === finalPhaseIndex && !finalPhaseCompleted
+          ? currentPhase
+          : Math.min(phases.length, currentPhase + 1)
       : 0;
     onFinish({
+      ...syntheticSessionMetadata,
       elapsed,
       markers,
       phaseTimes,
@@ -881,7 +941,7 @@ function Dashboard({
           </div>
         ))}
         <span className="rounded bg-[#f1f5f9] px-2.5 py-1 font-['Inter:Italic'] text-[11px] italic text-[#94a3b8]">
-          demonstration mode · 42 seconds
+          demonstration mode&nbsp;&nbsp;&nbsp;
         </span>
       </header>
 
@@ -898,7 +958,7 @@ function Dashboard({
                 isRunning={isRunning}
                 hasStarted={hasStarted}
                 onPlay={play}
-                onPause={() => setIsRunning(false)}
+                onPause={pause}
                 onStop={() => finishSession(false)}
                 onAbort={() => finishSession(true)}
               />
@@ -1035,7 +1095,7 @@ function ReviewSidebar({ record }: { record: SessionRecord }) {
         <p className="text-[#64748b]">Total Duration: <b className="text-[#1e293b]">{formatTime(record.elapsed)}</b></p>
         <p className="text-[#64748b]">Total Markers: <b className="text-[#1e293b]">{record.markers.length}</b></p>
         <p className="text-[#64748b]">Protocol Active: <b className="text-[#1e293b]">{formatTime(protocolElapsed)}</b></p>
-        <p className="text-[#64748b]">Samples: <b className="text-[#1e293b]">{(protocolElapsed * 256).toLocaleString()}</b></p>
+        <p className="text-[#64748b]">Samples: <b className="text-[#1e293b]">{(protocolElapsed * record.nominal_sample_rate_hz).toLocaleString()}</b></p>
         <p className="text-[#64748b]">Phases: <b className="text-[#1e293b]">{record.completedPhases} of {phases.length}</b></p>
         <div className="flex items-center gap-1.5 text-[#64748b]">Outcome: <OutcomeBadge outcome={record.outcome} /></div>
       </div>
@@ -1111,10 +1171,12 @@ function ReviewScreen({
   details,
   setupNotes,
   record,
+  onStartAnotherSession,
 }: {
   details: SessionDetails;
   setupNotes: string;
   record: SessionRecord;
+  onStartAnotherSession: () => void;
 }) {
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1134,52 +1196,6 @@ function ReviewScreen({
     (total, time) => total + time,
     0,
   );
-  const eventLog = {
-    schema_version: "1.0",
-    synthetic: true,
-    session: {
-      session_id: details.sessionId || "unspecified-session",
-      participant_name: details.participantName,
-      visit_session: details.visit,
-      outcome: record.outcome,
-      session_elapsed_s: record.elapsed,
-      protocol_active_s: protocolElapsed,
-      completed_phases: record.completedPhases,
-      total_phases: phases.length,
-    },
-    phase_times: protocolPhases.map((phase, index) => ({
-      phase_id: phase.phaseId,
-      event_code: phase.eventCode,
-      elapsed_s: record.phaseTimes[index],
-    })),
-    events: record.markers.map((marker) => ({
-      event_id: marker.event_id,
-      session_id: marker.session_id,
-      elapsed_s: marker.elapsed_s,
-      event_type: marker.event_type,
-      label: marker.label,
-      source: marker.source,
-      ...(marker.event_code ? { event_code: marker.event_code } : {}),
-      ...(marker.corrects_event_id
-        ? { corrects_event_id: marker.corrects_event_id }
-        : {}),
-    })),
-  };
-  const eventLogJson = JSON.stringify(eventLog, null, 2);
-
-  const downloadEventLog = () => {
-    const blob = new Blob([eventLogJson], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const safeSessionId = (details.sessionId || "session").replace(
-      /[^a-z0-9_-]+/gi,
-      "-",
-    );
-    link.href = url;
-    link.download = `${safeSessionId}-raw-event-log.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
 
   useEffect(() => {
     if (!isPlaying || record.elapsed === 0) return;
@@ -1229,6 +1245,9 @@ function ReviewScreen({
             </div>
             <div className={`flex h-full items-center rounded-lg border px-3 font-bold ${outcomeStyles}`}>Session outcome&nbsp;·&nbsp;{record.outcome}</div>
             <span className="rounded bg-[#f1f5f9] px-2 py-1 italic text-[#94a3b8]">contact ≠ artifact-free signal</span>
+            <span className="shrink-0 rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] font-semibold uppercase text-[#64748b]">
+              Simulated data
+            </span>
           </div>
           <ReviewTraces />
           <SessionOverview record={record} />
@@ -1237,7 +1256,7 @@ function ReviewScreen({
               <section className="rounded-[10px] border border-[#e2e8f0] bg-white px-5 py-3">
                 <div className="flex items-center gap-5">
                   <div><h2 className="text-[10px] font-semibold uppercase text-[#94a3b8]">Playback Position</h2><p className="text-[30px] font-bold leading-tight">{formatTime(playbackPosition)} <span className="text-sm font-normal text-[#94a3b8]">/ {formatTime(record.elapsed)}</span></p></div>
-                  <div className="text-[11px] text-[#64748b]"><b className="text-[#475569]">● {isPlaying ? "PLAYING" : "PAUSED"}</b><p>Session duration: <b className="text-[#1e293b]">{formatTime(record.elapsed)}</b></p><p>Total samples: <b className="text-[#1e293b]">{(protocolElapsed * 256).toLocaleString()}</b></p></div>
+                  <div className="text-[11px] text-[#64748b]"><b className="text-[#475569]">● {isPlaying ? "PLAYING" : "PAUSED"}</b><p>Session duration: <b className="text-[#1e293b]">{formatTime(record.elapsed)}</b></p><p>Total samples: <b className="text-[#1e293b]">{(protocolElapsed * record.nominal_sample_rate_hz).toLocaleString()}</b></p></div>
                 </div>
                 <div className="mt-1.5 h-1.5 rounded bg-[#e2e8f0]"><div className="h-full rounded bg-[#2563eb]" style={{ width: `${playbackProgress}%` }} /></div>
                 <div className="mt-2 flex items-center gap-1.5">
@@ -1289,18 +1308,14 @@ function ReviewScreen({
                 <p className="text-lg font-bold">{record.outcome}</p>
                 <p className="mt-1 text-[11px]">{record.completedPhases} of {phases.length} phases recorded.</p>
               </div>
-              <h3 className="mb-1 mt-3 text-[10px] font-semibold uppercase text-[#94a3b8]">Export</h3>
-              <div className="mb-1.5">
-                <button type="button" className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-2 py-2 text-[10px] font-semibold text-[#1d4ed8]" onClick={downloadEventLog}>
-                  <img src="/assets/fc9c9.svg" alt="" width="13" height="13" />Download Raw Event Log JSON
-                </button>
-              </div>
-              {[["/assets/fc9c9.svg", "Download EDF"], ["/assets/182fb.svg", "Export CSV"], ["/assets/a0adf.svg", "Share Report"]].map(([icon, label], index) => (
-                <button key={label} type="button" className={`mb-1.5 flex w-full items-center gap-2 rounded-lg border px-3.5 py-2 text-[12px] font-semibold ${index === 2 ? "border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]" : "border-[#e2e8f0] bg-[#f8fafc] text-[#475569]"}`}>
-                  <img src={icon} alt="" width="14" height="14" />{label}
-                </button>
-              ))}
-              <p className="mt-2 text-[10px] italic text-[#94a3b8]">Illustrative data — not for clinical use</p>
+              <button
+                type="button"
+                className="mt-3 w-full rounded-lg bg-[#2563eb] px-3 py-2.5 text-[12px] font-semibold text-white hover:bg-[#1d4ed8]"
+                onClick={onStartAnotherSession}
+              >
+                Start Another Session
+              </button>
+              <p className="mt-2 text-[10px] italic text-[#94a3b8]">Simulated data — not for clinical use</p>
             </section>
           </div>
         </div>
@@ -1338,7 +1353,21 @@ function App() {
           }}
         />
       ) : record ? (
-        <ReviewScreen details={details} setupNotes={setupNotes} record={record} />
+        <ReviewScreen
+          details={details}
+          setupNotes={setupNotes}
+          record={record}
+          onStartAnotherSession={() => {
+            setDetails({
+              sessionId: "",
+              participantName: "",
+              visit: "",
+            });
+            setSetupNotes("");
+            setRecord(null);
+            setScreen("setup");
+          }}
+        />
       ) : null}
     </DesktopCanvas>
   );

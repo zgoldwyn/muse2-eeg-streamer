@@ -1,0 +1,4 @@
+{
+  "nominal_sample_rate_hz": 256,
+  "samples_per_packet": 12
+}

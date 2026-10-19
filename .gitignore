@@ -11,6 +11,7 @@ __pycache__/
 
 # Native build products
 muse2-c/build/
+frontend/node_modules/
 *.o
 
 # Local tooling
