@@ -25,6 +25,7 @@ REQUIRED_CSV_COLUMNS = (
 WINDOW_DURATION_S = 2.0
 NOMINAL_SAMPLE_RATE_HZ = 256.0
 TIMESTAMP_TOLERANCE_S = 0.0005
+PACKET_INDEX_MODULUS = 65_536
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ class LoadedSession:
     """Validated samples and immutable metadata for one EEG session."""
 
     session_id: str
-    sampling_rate_hz: float
+    nominal_sample_rate_hz: float
     samples_per_packet: int
     samples: tuple[EegSample, ...]
 
@@ -56,7 +57,7 @@ class EegWindow:
     session_id: str
     start_time_s: float
     end_time_s: float
-    sampling_rate_hz: float
+    nominal_sample_rate_hz: float
     channel_samples: Mapping[str, tuple[float, ...]]
     channel_times_s: Mapping[str, tuple[float, ...]]
     is_valid: bool
@@ -71,12 +72,18 @@ def load_synthetic_session(
 ) -> LoadedSession:
     """Load one CSV session and preserve its timing without filling data gaps.
 
-    Metadata must provide ``session_id``, ``sampling_rate_hz``, and
+    Metadata must provide ``session_id``, ``nominal_sample_rate_hz``, and
     ``samples_per_packet``. It may be a mapping or the path to a JSON file.
     """
     metadata_mapping = _load_metadata(metadata)
     session_id = _required_nonempty_string(metadata_mapping, "session_id")
-    sampling_rate_hz = _required_finite_number(metadata_mapping, "sampling_rate_hz")
+    nominal_sample_rate_hz = _required_finite_number(
+        metadata_mapping, "nominal_sample_rate_hz"
+    )
+    if nominal_sample_rate_hz != NOMINAL_SAMPLE_RATE_HZ:
+        raise ValueError(
+            "metadata field nominal_sample_rate_hz must be 256 for this development format."
+        )
     samples_per_packet = _required_nonnegative_integer(
         metadata_mapping, "samples_per_packet", allow_zero=False
     )
@@ -101,7 +108,9 @@ def load_synthetic_session(
         raise ValueError(f"Could not read EEG CSV {path}: {error}") from error
 
     samples: list[EegSample] = []
-    seen_positions: set[tuple[str, int, int]] = set()
+    # Packet indices repeat after uint16 wraparound, so elapsed time remains part
+    # of a CSV-row identity. Exact repeated rows are still rejected.
+    seen_positions: set[tuple[str, int, int, float]] = set()
     with stream:
         reader = csv.DictReader(stream)
         if reader.fieldnames is None:
@@ -127,9 +136,7 @@ def load_synthetic_session(
             if elapsed_s < 0:
                 raise ValueError(f"Row {row_number} has a negative elapsed_s value.")
             microvolts = _parse_finite_float(row["microvolts"], "microvolts", row_number)
-            packet_index = _parse_nonnegative_integer(
-                row["packet_index"], "packet_index", row_number
-            )
+            packet_index = _parse_packet_index(row["packet_index"], row_number)
             sample_in_packet = _parse_nonnegative_integer(
                 row["sample_in_packet"], "sample_in_packet", row_number
             )
@@ -139,7 +146,7 @@ def load_synthetic_session(
                     f"samples_per_packet ({samples_per_packet})."
                 )
 
-            position = (channel, packet_index, sample_in_packet)
+            position = (channel, packet_index, sample_in_packet, elapsed_s)
             if position in seen_positions:
                 raise ValueError(
                     f"Duplicate sample for {channel} packet {packet_index}, "
@@ -155,7 +162,7 @@ def load_synthetic_session(
 
     return LoadedSession(
         session_id=session_id,
-        sampling_rate_hz=sampling_rate_hz,
+        nominal_sample_rate_hz=nominal_sample_rate_hz,
         samples_per_packet=samples_per_packet,
         samples=tuple(samples),
     )
@@ -163,8 +170,8 @@ def load_synthetic_session(
 
 def create_fixed_windows(session: LoadedSession) -> list[EegWindow]:
     """Create two-second, non-overlapping EEG windows without repairing gaps."""
-    expected_samples = int(round(session.sampling_rate_hz * WINDOW_DURATION_S))
-    if abs(session.sampling_rate_hz * WINDOW_DURATION_S - expected_samples) > 1e-9:
+    expected_samples = int(round(session.nominal_sample_rate_hz * WINDOW_DURATION_S))
+    if abs(session.nominal_sample_rate_hz * WINDOW_DURATION_S - expected_samples) > 1e-9:
         raise ValueError("Sampling rate does not produce a whole number of samples per window.")
 
     last_time = max(sample.elapsed_s for sample in session.samples)
@@ -197,10 +204,9 @@ def _build_window(
 ) -> EegWindow:
     reasons: list[str] = []
     ordered = {
-        channel: sorted(
-            samples,
-            key=lambda sample: (sample.packet_index, sample.sample_in_packet, sample.elapsed_s),
-        )
+        # Time establishes chronological order because packet indices wrap from
+        # 65535 to 0.  Packet indices cannot be sorted numerically by themselves.
+        channel: sorted(samples, key=lambda sample: sample.elapsed_s)
         for channel, samples in by_channel.items()
     }
 
@@ -214,17 +220,25 @@ def _build_window(
             )
 
     reference = ordered[REQUIRED_CHANNELS[0]]
-    reference_positions = [_position(sample, session.samples_per_packet) for sample in reference]
-    if reference_positions and not _positions_are_contiguous(reference_positions):
+    reference_positions = [
+        (sample.packet_index, sample.sample_in_packet) for sample in reference
+    ]
+    if reference and not _packet_positions_are_contiguous(reference, session.samples_per_packet):
         reasons.append("TP9 has missing packet/sample positions in this window")
+    _validate_channel_time_grid(
+        "TP9", reference, start, session.nominal_sample_rate_hz, reasons
+    )
 
     for channel in REQUIRED_CHANNELS[1:]:
         current = ordered[channel]
-        positions = [_position(sample, session.samples_per_packet) for sample in current]
-        if positions and not _positions_are_contiguous(positions):
+        positions = [(sample.packet_index, sample.sample_in_packet) for sample in current]
+        if current and not _packet_positions_are_contiguous(current, session.samples_per_packet):
             reasons.append(f"{channel} has missing packet/sample positions in this window")
         if positions != reference_positions:
             reasons.append(f"sample positions for {channel} are not aligned with TP9")
+        _validate_channel_time_grid(
+            channel, current, start, session.nominal_sample_rate_hz, reasons
+        )
         if len(current) == len(reference):
             for position, (expected, observed) in enumerate(zip(reference, current)):
                 if abs(expected.elapsed_s - observed.elapsed_s) > TIMESTAMP_TOLERANCE_S:
@@ -239,7 +253,7 @@ def _build_window(
         session_id=session.session_id,
         start_time_s=start,
         end_time_s=end,
-        sampling_rate_hz=session.sampling_rate_hz,
+        nominal_sample_rate_hz=session.nominal_sample_rate_hz,
         channel_samples={
             channel: tuple(sample.microvolts for sample in ordered[channel])
             for channel in REQUIRED_CHANNELS
@@ -305,9 +319,47 @@ def _parse_nonnegative_integer(value: str | None, name: str, row_number: int) ->
     return int(value)
 
 
-def _position(sample: EegSample, samples_per_packet: int) -> int:
-    return sample.packet_index * samples_per_packet + sample.sample_in_packet
+def _parse_packet_index(value: str | None, row_number: int) -> int:
+    packet_index = _parse_nonnegative_integer(value, "packet_index", row_number)
+    if packet_index >= PACKET_INDEX_MODULUS:
+        raise ValueError(
+            f"Row {row_number} packet_index must be smaller than {PACKET_INDEX_MODULUS}."
+        )
+    return packet_index
 
 
-def _positions_are_contiguous(positions: list[int]) -> bool:
-    return all(current == previous + 1 for previous, current in zip(positions, positions[1:]))
+def _packet_positions_are_contiguous(
+    samples: list[EegSample], samples_per_packet: int
+) -> bool:
+    """Check chronological packet/sample positions, allowing uint16 packet wraparound."""
+    for previous, current in zip(samples, samples[1:]):
+        expected_packet = previous.packet_index
+        expected_sample = previous.sample_in_packet + 1
+        if expected_sample == samples_per_packet:
+            expected_sample = 0
+            expected_packet = (expected_packet + 1) % PACKET_INDEX_MODULUS
+        if (current.packet_index, current.sample_in_packet) != (
+            expected_packet,
+            expected_sample,
+        ):
+            return False
+    return True
+
+
+def _validate_channel_time_grid(
+    channel: str,
+    samples: list[EegSample],
+    start_time_s: float,
+    sample_rate_hz: float,
+    reasons: list[str],
+) -> None:
+    """Require each channel to follow the expected 256 Hz grid, within rounding tolerance."""
+    for index, sample in enumerate(samples):
+        expected_time_s = start_time_s + index / sample_rate_hz
+        if abs(sample.elapsed_s - expected_time_s) > TIMESTAMP_TOLERANCE_S:
+            reasons.append(
+                f"timestamp for {channel} sample {index} is off the expected "
+                f"{sample_rate_hz:g} Hz time grid by more than "
+                f"{TIMESTAMP_TOLERANCE_S} seconds"
+            )
+            return

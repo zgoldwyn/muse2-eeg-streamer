@@ -38,6 +38,7 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual([window.end_time_s for window in windows], [2.0, 4.0, 6.0])
         self.assertTrue(windows[0].window_id.endswith("window-000000"))
         self.assertEqual(len(windows[0].channel_samples["TP9"]), 512)
+        self.assertEqual(windows[0].nominal_sample_rate_hz, 256.0)
 
     def test_missing_sample_marks_its_window_invalid(self) -> None:
         rows = self._read_rows()
@@ -45,7 +46,7 @@ class DatasetTests(unittest.TestCase):
             [
                 row
                 for row in rows
-                if not (row["channel"] == "TP9" and row["packet_index"] == "6" and row["sample_in_packet"] == "4")
+                if not (row["channel"] == "TP9" and row["packet_index"] == "10" and row["sample_in_packet"] == "0")
             ]
         )
 
@@ -72,6 +73,21 @@ class DatasetTests(unittest.TestCase):
         self.assertFalse(windows[0].is_valid)
         self.assertTrue(any("timestamp for AF7" in reason for reason in windows[0].invalid_reasons))
 
+    def test_aligned_compressed_timestamps_are_invalid_against_256_hz_grid(self) -> None:
+        """Channels agreeing with one another is insufficient when all are mistimed."""
+        rows = self._read_rows()
+        for row in rows:
+            if float(row["elapsed_s"]) < 2.0:
+                sample_number = int(row["packet_index"]) * 12 + int(row["sample_in_packet"])
+                row["elapsed_s"] = f"{sample_number / 512:.9f}"
+        self._write_rows(rows)
+
+        windows = self.load_windows()
+        self.assertFalse(windows[0].is_valid)
+        self.assertTrue(
+            any("expected 256 Hz time grid" in reason for reason in windows[0].invalid_reasons)
+        )
+
     def test_duplicate_sample_is_rejected_by_loader(self) -> None:
         rows = self._read_rows()
         rows.append(dict(rows[0]))
@@ -95,8 +111,8 @@ class DatasetTests(unittest.TestCase):
                         "session_id": "synthetic-6s",
                         "elapsed_s": f"{sample_number / 256:.9f}",
                         "channel": channel,
-                        "packet_index": str(sample_number // 16),
-                        "sample_in_packet": str(sample_number % 16),
+                        "packet_index": str(sample_number // 12),
+                        "sample_in_packet": str(sample_number % 12),
                         "microvolts": str(float(sample_number + channel_index / 10)),
                     }
                 )
@@ -106,6 +122,15 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(len(windows), 4)
         self.assertFalse(windows[-1].is_valid)
         self.assertIn("channel TP9 has 128 samples; expected 512", windows[-1].invalid_reasons)
+
+    def test_packet_index_wraparound_from_65535_to_zero_is_contiguous(self) -> None:
+        rows = self._read_rows()
+        for row in rows:
+            row["packet_index"] = str((int(row["packet_index"]) + 65_534) % 65_536)
+        self._write_rows(rows)
+
+        windows = self.load_windows()
+        self.assertTrue(all(window.is_valid for window in windows))
 
     def test_session_excluded_from_development_list_is_rejected(self) -> None:
         metadata = json.loads(self.metadata_path.read_text(encoding="utf-8"))
