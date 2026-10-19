@@ -305,7 +305,8 @@ demo-001,43.000000,reconnect,,software
   "started_at_utc": "2026-10-03T14:05:00Z",
   "ended_at_utc": "2026-10-03T14:20:00Z",
   "device": "Muse 2",
-  "sample_rate_hz": 256,
+  "nominal_sample_rate_hz": 256,
+  "samples_per_packet": 12,
   "channels": ["TP9", "AF7", "AF8", "TP10"],
   "microvolt_formula": "(raw - 2048) * 0.48828125",
   "software_commit": "<git commit hash>",
@@ -503,7 +504,8 @@ Stopping on the first bad record is deliberately strict for now. For live record
   "status": "complete",
   "started_at_utc": "2026-10-15T23:10:04Z",
   "ended_at_utc": "2026-10-15T23:10:04Z",
-  "sample_rate_hz": 256,
+  "nominal_sample_rate_hz": 256,
+  "samples_per_packet": 12,
   "channels": ["TP9", "AF7", "AF8", "TP10"],
   "units": "microvolts",
   "timing_method": "packet_index_estimate",
@@ -514,6 +516,8 @@ Stopping on the first bad record is deliberately strict for now. For live record
 ```
 
 `data_source` labels synthetic sessions so they can never be mistaken for real recordings.
+
+`nominal_sample_rate_hz` and `samples_per_packet` use the names and values the team agreed on, so other code can load the recorder's output without renaming anything. "Nominal" means the rate the headset is expected to sample at, not a rate measured with the computer's clock.
 
 ## Part 3: Read-back check (`eeg_app/recording.py`, Reading section)
 

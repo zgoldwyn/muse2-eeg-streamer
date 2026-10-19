@@ -56,7 +56,7 @@ EEG_COLUMNS = (
     "sample_in_packet",
     "microvolts",
 )
-SAMPLE_RATE_HZ = 256
+NOMINAL_SAMPLE_RATE_HZ = 256
 SAMPLES_PER_PACKET = 12
 PACKET_INDEX_MODULUS = 65536  # packet index is 16-bit, so it wraps 65535 -> 0
 UNITS = "microvolts"
@@ -182,7 +182,7 @@ class SessionWriter:
         sessions_dir: str | os.PathLike[str],
         session_id: str,
         *,
-        sample_rate_hz: float = SAMPLE_RATE_HZ,
+        nominal_sample_rate_hz: float = NOMINAL_SAMPLE_RATE_HZ,
         channels: Sequence[str] = REQUIRED_CHANNELS,
         units: str = UNITS,
         timing_method: str = DEFAULT_TIMING_METHOD,
@@ -203,7 +203,8 @@ class SessionWriter:
             "status": STATUS_RECORDING,
             "started_at_utc": None,
             "ended_at_utc": None,
-            "sample_rate_hz": sample_rate_hz,
+            "nominal_sample_rate_hz": nominal_sample_rate_hz,
+            "samples_per_packet": SAMPLES_PER_PACKET,
             "channels": list(self.channels),
             "units": units,
             "timing_method": timing_method,
@@ -385,7 +386,7 @@ def synthetic_records(
         packets_since_first = (packet_index - first) % PACKET_INDEX_MODULUS
         for channel in channels:
             for position in range(SAMPLES_PER_PACKET):
-                elapsed_s = (packets_since_first * SAMPLES_PER_PACKET + position) / SAMPLE_RATE_HZ
+                elapsed_s = (packets_since_first * SAMPLES_PER_PACKET + position) / NOMINAL_SAMPLE_RATE_HZ
                 value = SINE_AMPLITUDE_UV * sin(2 * pi * SINE_HZ * elapsed_s)
                 yield SampleRecord(
                     channel=channel,
