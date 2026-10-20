@@ -598,3 +598,58 @@ All tests are **synthetic tests**. They show that the writer and reader work, no
 4. **No `events.csv` yet**, so prompts and markers aren't saved.
 5. **Stopping on the first bad record** suits tests. A live recorder may need to log the bad record and keep going instead.
 6. **Not tested on hardware:** throughput at about 1,024 rows per second with a flush after every row, behaviour on reconnect, and pipe buffering.
+
+---
+
+# Week 3: Recorder-to-loader handoff
+
+Everything below uses **synthetic data only**. No headset, Bluetooth, C scanner or participant data was used.
+
+## Part 2: Known-answer session
+
+[`tests/fixtures/integration/generate_fixture.py`](../tests/fixtures/integration/generate_fixture.py) uses the existing `SessionWriter` to save `integration-demo-001`. That's packets 0 to 127 on all four channels, with packet 50 missing on every channel, and one planted AF7 disturbance in packets 96 to 99 (4.5 to 4.68359375 s). The exact answer key, including the formula for every value, is in [`tests/fixtures/integration/README.md`](../tests/fixtures/integration/README.md). The generated `eeg.csv` and `metadata.json` are committed, so the loader can be tested against the writer's real output. [`tests/test_integration_fixture.py`](../tests/test_integration_fixture.py) checks the files against the answer key, and also checks that rerunning the generator gives the same CSV.
+
+## Part 3: Handoff to the loader
+
+**Status: checked by me against the loader in PR #12 (commit `892ea3c`). Still to confirm with Namit.**
+
+The writer's output was given to the loader exactly as written: the committed `tests/fixtures/integration/integration-demo-001/eeg.csv` and `metadata.json`, not a hand-edited copy.
+
+| Check | Result |
+|---|---|
+| Command that generates the session | `python3 -m tests.fixtures.integration.generate_fixture` |
+| Generated row count | 6,096 EEG rows, 1,524 per channel (`metadata.json` `eeg_row_count: 6096`) |
+| Packet 50 missing after read-back | Yes. My `check_session` reports packet 50 missing on TP9, AF7, AF8 and TP10, with no incomplete packets and no duplicates. After `load_synthetic_session`, 0 of the 6,096 loaded samples are from packet 50. |
+| Loader accepts the files unchanged | Yes. `load_synthetic_session(dir/"eeg.csv", dir/"metadata.json")` loads them with no renamed columns and no translated metadata fields. |
+| Windows from `create_fixed_windows` | 0–2 s valid (512 per channel), 2–4 s invalid (500 per channel; reasons: missing packet/sample positions and off the 256 Hz time grid), 4–6 s valid (512 per channel) |
+| Mismatches found | None that stop loading (see below) |
+
+The loader reads only `session_id`, `nominal_sample_rate_hz`, `samples_per_packet` and the optional `development_session_ids` from metadata, and ignores the writer's other fields. Both sides use the same six CSV columns in the same order.
+
+To repeat the loader check once PR #12 is merged, or on a checkout of its branch:
+
+```bash
+python3 -m unittest tests.test_integration_fixture -v
+```
+
+The two `LoaderHandoffTests` run when `eeg_app.dataset` exists and are skipped otherwise.
+
+### To agree with Namit
+
+These don't break loading today, but we should decide them together:
+
+1. **Directory and file names.** The writer saves `<sessions_dir>/<session_id>/eeg.csv` and `metadata.json`. The PR #12 fixture uses `tests/fixtures/dataset/session_metadata.json`. The loader takes both paths, so either works. I propose the writer's layout as the shared one.
+2. **`development_session_ids`.** The writer doesn't write it, and the loader treats it as optional. Deciding which sessions are for development and which are held out is a dataset-level choice, not something one recording knows, so I'd keep it out of each session's metadata.
+3. **`status` and `data_source`.** The loader doesn't check them, so an `interrupted` session, or one that isn't marked synthetic, loads the same as a complete one. Should it at least warn?
+4. **Integer vs float rate.** The writer saves `256` and the loader compares against `256.0`. Python treats them as equal, so this is fine, but it's worth knowing.
+
+If any of these turns into a change, the fix goes in PR #12 for loader behaviour, or in this PR for writer output.
+
+### "Complete" does not mean "no dropped packets"
+
+`integration-demo-001` has `status: complete` and is still missing packet 50. These answer two different questions:
+
+- **`status`** is the recording outcome. Did the writer save every record it was given, and close normally (`complete`)? Or did it stop early (`interrupted`)?
+- **Dropped packets** are about the data itself. Did every packet the headset sent actually arrive? The writer never fills a gap, so a dropped packet shows up as missing rows, and the read-back check reports it.
+
+So a session can finish cleanly and still have holes in it. Code that uses a session should check both. The loader's windows already do this for gaps, by marking 2–4 s invalid.
