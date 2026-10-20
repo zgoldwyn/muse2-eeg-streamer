@@ -1,0 +1,20 @@
+{
+  "schema_version": "0.1",
+  "session_id": "integration-demo-001",
+  "status": "complete",
+  "started_at_utc": "2026-10-20T16:21:18Z",
+  "ended_at_utc": "2026-10-20T16:21:18Z",
+  "nominal_sample_rate_hz": 256,
+  "samples_per_packet": 12,
+  "channels": [
+    "TP9",
+    "AF7",
+    "AF8",
+    "TP10"
+  ],
+  "units": "microvolts",
+  "timing_method": "packet_index_estimate",
+  "data_source": "synthetic",
+  "eeg_row_count": 6096,
+  "stop_reason": null
+}
