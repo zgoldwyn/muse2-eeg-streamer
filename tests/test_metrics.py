@@ -3,6 +3,8 @@
 import unittest
 
 from eeg_app.metrics import compare_detectors, evaluate_predictions, format_rate
+from eeg_app.math_pipeline import demo_peak_to_peak_prediction
+from eeg_app.preprocessing import REQUIRED_CHANNELS
 
 
 REFERENCE_RECORDS = [
@@ -47,6 +49,30 @@ MACHINE_LEARNING_PREDICTIONS = [
 
 class EvaluationMetricsTests(unittest.TestCase):
     """Check reference-label validation and binary detector evaluation."""
+
+    def test_demo_rule_predictions_match_existing_references_by_id_when_reordered(self):
+        # Reuse the existing ten-window reference data above unchanged.
+        # These feature inputs test matching only; they are not Ben's fixture.
+        predictions = []
+        for index, reference in enumerate(REFERENCE_RECORDS):
+            peak_to_peak = 200.0 if index % 2 == 0 else 10.0
+            predictions.append(demo_peak_to_peak_prediction({
+                "window_id": reference["window_id"],
+                "features": {f"{c}_peak_to_peak_uv": peak_to_peak for c in REQUIRED_CHANNELS},
+                "units": {f"{c}_peak_to_peak_uv": "microvolts" for c in REQUIRED_CHANNELS},
+                "unavailable_reasons": {},
+            }))
+        ordered = evaluate_predictions(REFERENCE_RECORDS, predictions)
+        reversed_result = evaluate_predictions(REFERENCE_RECORDS, list(reversed(predictions)))
+        both_reordered = evaluate_predictions(
+            REFERENCE_RECORDS[3:] + REFERENCE_RECORDS[:3], predictions[1::2] + predictions[::2],
+        )
+        self.assertEqual(ordered["counts"], {
+            "true_positives": 2, "false_negatives": 2,
+            "false_positives": 3, "true_negatives": 3,
+        })
+        self.assertEqual(reversed_result, ordered)
+        self.assertEqual(both_reordered, ordered)
 
     def assert_rate(
         self,
