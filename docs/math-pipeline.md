@@ -91,7 +91,7 @@ be present locally; `git fetch origin` retrieves the branches. It runs the
 full test suite including integration tests, then the saved-session demo.
 It reads the committed fixture byte-for-byte, without translating metadata.
 
-Verified result: all 59 tests passed with upstream dependencies supplied,
+Verified result: all 60 tests passed with upstream dependencies supplied,
 followed by:
 
 ```text
@@ -108,7 +108,7 @@ The integration test also verifies 6,096 loaded rows, packet 50 remaining
 absent, intervals `[0, 2)`, `[2, 4)`, `[4, 6)`, 24 features per valid window,
 and unchanged sample arrays for all three windows.
 
-Normal test discovery reports 57 passes and two integration skips while the
+Normal test discovery reports 57 passes and three integration skips while the
 upstream files are absent. The temporary verification run supplies those files
 and runs that integration test successfully rather than skipping it.
 
@@ -134,7 +134,7 @@ this peak-to-peak-only rule from running.
 With Namit's loader and Ben's fixture in the checkout, run:
 
 ```text
-python -m eeg_app.math_pipeline tests/fixtures/integration/integration-demo-001 --flatline-tolerance-uv 0 --demo-predictions
+python -m eeg_app.math_pipeline tests/fixtures/integration/integration-demo-001 --flatline-tolerance-uv 0 --demo-predictions --reference-labels tests/fixtures/integration/reference_records.json
 ```
 
 For the current branch, which does not merge their open PRs, run:
@@ -149,41 +149,48 @@ reasons, the actual output is:
 ```text
 Demo rule: peak-to-peak >100 microvolts on any channel; not validated.
 Prediction records: [{"window_id": "integration-demo-001:window-000000", "decision": "clean"}, {"window_id": "integration-demo-001:window-000002", "decision": "artifact"}]
-Reference-label evaluation: NOT RUN (predeclared labels not supplied).
+Reference-label evaluation: {"counts": {"false_negatives": 0, "false_positives": 0, "true_negatives": 1, "true_positives": 1}, "metrics": {"accepted_contamination": {"denominator": 1, "numerator": 0, "value": 0.0}, "clean_retention": {"denominator": 1, "numerator": 1, "value": 1.0}, "coverage": {"denominator": 2, "numerator": 1, "value": 0.5}, "precision": {"denominator": 1, "numerator": 1, "value": 1.0}, "recall": {"denominator": 1, "numerator": 1, "value": 1.0}}, "summary": {"accepted_eligible_windows": 1, "eligible_windows": 2, "invalid_windows_excluded": 1, "total_reference_windows": 3, "uncertain_windows_excluded": 0}}
 ```
 
-### Evaluation dependency and PR reporting
+### Zack's supplied reference labels and completed evaluation
 
-The inspected Ben fixture README describes the baseline, packet gap, and
-injected AF7 disturbance but supplies no binary reference-label records for
-this session. No replacement labels have been created. The predicted decisions
-above are model outputs, not reference labels.
+Zack supplied the following scenario-based reference records, relayed by Sam
+in this chat on October 20, 2026. They are saved unchanged in
+`tests/fixtures/integration/reference_records.json`. Zack specified them based
+on the fixture scenario rather than the predictions; they are synthetic test
+labels, not independently reviewed labels for real EEG.
 
-The tests pass these prediction dictionaries directly to the actual
-`eeg_app.metrics.evaluate_predictions` with an empty reference list. Its
-prediction schema validation succeeds, then it raises the expected
-`Prediction supplied for unknown window ID(s)` error because no reference IDs
-were supplied. This only checks prediction format; it is not a completed
-reference-label evaluation and produces no scores.
+| Interval | Supplied window ID | Supplied label |
+| --- | --- | --- |
+| `[0, 2)` | `integration-demo-001:window-000000` | `clean` |
+| `[2, 4)` | `integration-demo-001:window-000001` | `invalid` |
+| `[4, 6)` | `integration-demo-001:window-000002` | `artifact` |
 
-Pending from Shrinithi: the predeclared synthetic reference records containing
-`window_id` and `label`, matched to Namit's exact IDs for `integration-demo-001`.
-We cannot yet verify that her reference IDs agree or report evaluation metrics.
-The PR description must flag this pending handoff; no prediction-field format
-mismatch has been found, but reference-ID compatibility is unverified.
-
-When the existing labels are supplied as a JSON list, run:
+The fixed demo rule and 100 microvolt threshold were not changed. Run:
 
 ```text
-python scratch/samuel/verify_math_handoff.py --reference-labels path/to/existing_reference_labels.json
+python scratch/samuel/verify_math_handoff.py --reference-labels tests/fixtures/integration/reference_records.json
 ```
 
-The runner forwards that existing file unchanged. The CLI calls
+The runner defaults to this supplied file, so its shorter command also runs
+the evaluation. It forwards the reference file unchanged. The CLI calls
 `evaluate_predictions(references, predictions)` directly, with no field
 translation, ID reassignment, or generated labels, and prints the returned
 counts, metrics, and exclusions. Missing predictions, unknown IDs, or other
-format errors are reported rather than hidden. Add that command's actual
-output to the PR once the reference file is available.
+format errors are reported rather than hidden.
+
+The actual output above reports TP=1, TN=1, FP=0, FN=0; three reference windows,
+two eligible windows, and one invalid window excluded. Recall, precision, and
+clean retention are 1.0; accepted contamination is 0.0; coverage is 0.5.
+Coverage measures the fraction accepted as clean, not the fraction processed.
+These results only verify this tiny synthetic plumbing test.
+
+No prediction/reference format or ID mismatch was found. A fresh fetch
+confirmed Namit's remote branch remains at `892ea3c`; the integration test
+checks each supplied ID against its explicit time interval. If that format
+changes before merging, reconcile the supplied labels by those intervals,
+preserve the loader's actual IDs in predictions, and report the mapping change
+to Zack. Do not guess IDs by list position. No remapping was needed for this run.
 
 For later research work, select thresholds using development data, then freeze
 the rule and parameters before sealed evaluation. The two-window synthetic
@@ -202,13 +209,16 @@ demo cannot establish accuracy on recorded EEG.
 The ordering test uses the existing `demo-001-w01` through `demo-001-w10`
 reference data from `tests/test_metrics.py`. Its feature inputs exercise the
 prediction/evaluator contract. They are not Ben's fixture, do not provide
-labels for `integration-demo-001`, and do not complete its pending evaluation.
+labels for `integration-demo-001`. The separate integration test
+`test_zack_labels_match_intervals_and_evaluator_excludes_invalid_window` uses
+Zack's supplied fixture references, verifies their time intervals, checks
+invalid exclusion and metrics, and repeats evaluation with reordered records.
 
 Run the tests in the current checkout:
 
 ```text
 python -m unittest discover -s tests
-# Ran 59 tests; OK (skipped=2): 57 pass, 2 need upstream PR files.
+# Ran 60 tests; OK (skipped=3): 57 pass, 3 need upstream PR files.
 ```
 
 Run the same full suite with the pinned actual upstream loader and shared
@@ -216,7 +226,7 @@ fixture in a temporary directory:
 
 ```text
 python scratch/samuel/verify_math_handoff.py
-# Ran 59 tests; OK: all pass, none skipped.
+# Ran 60 tests; OK: all pass, none skipped.
 ```
 
 Namit supplies valid continuous sample arrays and stable window IDs. The
@@ -232,6 +242,7 @@ parameters, and decision rule before evaluating sealed data; do not adjust
 them after inspecting sealed results. No research threshold selection or
 sealed evaluation has been performed here.
 
-**Pending:** Shrinithi's predeclared reference labels for Ben's shared session.
-Until supplied, its reference-ID matching and metric scores remain unverified,
-and the demo explicitly prints `Reference-label evaluation: NOT RUN`.
+**Reference-label evaluation complete:** Zack's supplied scenario labels are
+accepted directly by the merged evaluator. The invalid window receives no
+binary prediction and is excluded from the primary metrics. The command and
+actual output above can replace the pending-evaluation section in the PR.

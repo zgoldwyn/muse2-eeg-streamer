@@ -1,6 +1,7 @@
 """Real PR #12 loader + unchanged PR #17 fixture; see the verification runner."""
 
 import copy
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -24,6 +25,36 @@ FIXTURE = Path(__file__).parent / "fixtures/integration/integration-demo-001"
 @unittest.skipUnless(load_synthetic_session and (FIXTURE / "eeg.csv").exists(),
                      "Run scratch/samuel/verify_math_handoff.py to supply upstream PRs.")
 class MathPipelineIntegrationTests(unittest.TestCase):
+    def test_zack_labels_match_intervals_and_evaluator_excludes_invalid_window(self):
+        # Zack supplied these scenario labels independently of the predictions.
+        references = json.loads((FIXTURE.parent / "reference_records.json").read_text(encoding="utf-8"))
+        session = load_synthetic_session(FIXTURE / "eeg.csv", FIXTURE / "metadata.json")
+        windows = create_fixed_windows(session)
+        by_interval = {(window.start_time_s, window.end_time_s): window for window in windows}
+        for reference, interval in zip(references, ((0, 2), (2, 4), (4, 6))):
+            self.assertEqual(reference["window_id"], by_interval[interval].window_id,
+                             "Namit's ID changed: reconcile by time interval and report it to Zack.")
+        self.assertEqual(len(references), 3)
+        result = extract_features_for_windows(windows, flatline_tolerance_uv=0)
+        predictions = [demo_peak_to_peak_prediction(record) for record in result["feature_records"]]
+        self.assertNotIn(by_interval[(2, 4)].window_id, [p["window_id"] for p in predictions])
+        evaluation = evaluate_predictions(references, predictions)
+        self.assertEqual(evaluation["counts"], {
+            "true_positives": 1, "false_negatives": 0,
+            "false_positives": 0, "true_negatives": 1,
+        })
+        self.assertEqual(evaluation["summary"], {
+            "total_reference_windows": 3, "eligible_windows": 2,
+            "uncertain_windows_excluded": 0, "invalid_windows_excluded": 1,
+            "accepted_eligible_windows": 1,
+        })
+        for name, expected in (("recall", 1.0), ("precision", 1.0),
+                               ("clean_retention", 1.0), ("accepted_contamination", 0.0),
+                               ("coverage", 0.5)):
+            self.assertEqual(evaluation["metrics"][name]["value"], expected)
+        self.assertEqual(evaluate_predictions(references, list(reversed(predictions))), evaluation)
+        self.assertEqual(evaluate_predictions(list(reversed(references)), predictions), evaluation)
+
     def test_actual_loader_gap_exclusion_and_unchanged_samples(self):
         session = load_synthetic_session(FIXTURE / "eeg.csv", FIXTURE / "metadata.json")
         self.assertEqual(len(session.samples), 6096)
