@@ -6,3 +6,5 @@ The top of the screen displays the participant name, session ID, and visit numbe
 
 ![Replay and Review](images\eeg-operator-ui-draft-replay-and-review.jpg)
 The replay and review screen displays much of the same information as the live recording screen. However, the channel activity screen is minimized a small bit to make way for a full session overview that displays each phase and marker that was added or completed during the run. The recording time screen has more playback options for going through the recording. The add marker option at the bottom right is replaced by a session record screen, which includes multiple export options for the operator.
+
+# Browser to recorder handoff proposal
