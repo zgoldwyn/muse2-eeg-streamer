@@ -611,7 +611,7 @@ Everything below uses **synthetic data only**. No headset, Bluetooth, C scanner 
 
 ## Part 3: Handoff to the loader
 
-**Status: checked by me against the loader in PR #12 (commit `892ea3c`). Still to confirm with Namit.**
+**Status: confirmed with Namit.** I ran the check against the loader in PR #12 at commit `892ea3c`, and his later commit `789db63` changes only docs. Namit then ran `python3 -m unittest tests.test_integration_fixture -v` on his own machine, with all 13 tests passing, including both loader tests, and agreed the contract below in his comments on PR #17.
 
 The writer's output was given to the loader exactly as written: the committed `tests/fixtures/integration/integration-demo-001/eeg.csv` and `metadata.json`, not a hand-edited copy.
 
@@ -622,7 +622,7 @@ The writer's output was given to the loader exactly as written: the committed `t
 | Packet 50 missing after read-back | Yes. My `check_session` reports packet 50 missing on TP9, AF7, AF8 and TP10, with no incomplete packets and no duplicates. After `load_synthetic_session`, 0 of the 6,096 loaded samples are from packet 50. |
 | Loader accepts the files unchanged | Yes. `load_synthetic_session(dir/"eeg.csv", dir/"metadata.json")` loads them with no renamed columns and no translated metadata fields. |
 | Windows from `create_fixed_windows` | 0–2 s valid (512 per channel), 2–4 s invalid (500 per channel; reasons: missing packet/sample positions and off the 256 Hz time grid), 4–6 s valid (512 per channel) |
-| Mismatches found | None that stop loading (see below) |
+| Mismatches found | None that stop loading. One loader change was agreed: warn when `status` is not `complete` (see below; fix in PR #12). |
 
 The loader reads only `session_id`, `nominal_sample_rate_hz`, `samples_per_packet` and the optional `development_session_ids` from metadata, and ignores the writer's other fields. Both sides use the same six CSV columns in the same order.
 
@@ -634,16 +634,14 @@ python3 -m unittest tests.test_integration_fixture -v
 
 The two `LoaderHandoffTests` run when `eeg_app.dataset` exists and are skipped otherwise.
 
-### To agree with Namit
+### Agreed with Namit
 
-These don't break loading today, but we should decide them together:
+None of these broke loading. We agreed them so the contract is written down:
 
-1. **Directory and file names.** The writer saves `<sessions_dir>/<session_id>/eeg.csv` and `metadata.json`. The PR #12 fixture uses `tests/fixtures/dataset/session_metadata.json`. The loader takes both paths, so either works. I propose the writer's layout as the shared one.
-2. **`development_session_ids`.** The writer doesn't write it, and the loader treats it as optional. Deciding which sessions are for development and which are held out is a dataset-level choice, not something one recording knows, so I'd keep it out of each session's metadata.
-3. **`status` and `data_source`.** The loader doesn't check them, so an `interrupted` session, or one that isn't marked synthetic, loads the same as a complete one. Should it at least warn?
-4. **Integer vs float rate.** The writer saves `256` and the loader compares against `256.0`. Python treats them as equal, so this is fine, but it's worth knowing.
-
-If any of these turns into a change, the fix goes in PR #12 for loader behaviour, or in this PR for writer output.
+1. **Directory and file names.** The writer's layout is the standard: `<sessions_dir>/<session_id>/eeg.csv` and `metadata.json`. No change needed in the writer. The older `tests/fixtures/dataset/session_metadata.json` in PR #12 still works, because the loader takes both paths.
+2. **`development_session_ids` stays out of session metadata.** Whether a session is for development or held out is a dataset-level decision, not something one recording knows. No change needed: the writer doesn't write it, and the loader treats it as optional.
+3. **`status`: load but warn.** The loader should keep loading a session whose `status` isn't `complete`, but warn about it. A `complete` session is still not assumed to have no dropped packets, so the window checks keep handling gaps separately. **This is the one mismatch: the loader doesn't warn yet. The fix belongs in PR #12.** For `data_source`, the loader shouldn't warn or reject based on it, because synthetic and live data are both valid inputs.
+4. **`nominal_sample_rate_hz` is a number.** The writer stores `256`, and the loader turns it into a float (`256.0`) internally. No change needed on either side.
 
 ### "Complete" does not mean "no dropped packets"
 
@@ -653,3 +651,26 @@ If any of these turns into a change, the fix goes in PR #12 for loader behaviour
 - **Dropped packets** are about the data itself. Did every packet the headset sent actually arrive? The writer never fills a gap, so a dropped packet shows up as missing rows, and the read-back check reports it.
 
 So a session can finish cleanly and still have holes in it. Code that uses a session should check both. The loader's windows already do this for gaps, by marking 2–4 s invalid.
+
+## Part 4: Handoff note for the future live input
+
+**What the C streamer gives us today.** The Bluetooth callback (`peripheral:didUpdateValueForCharacteristic:` in `muse2_ble.m`) passes each 20-byte packet to `muse2_c_on_eeg_packet` in `muse2_events.c`. That decodes the packet into `Muse2EegPacket`, which holds the packet index and all 12 raw values and microvolt values. But it prints just one line per packet:
+
+```text
+EEG,<channel>,<packet_index>,<microvolts[0]>
+```
+
+So 11 of the 12 samples are thrown away, there's no sample position, and there's no time at all.
+
+**What a live adapter still needs, for each packet:**
+
+- the channel (TP9, AF7, AF8 or TP10)
+- the packet index (0 to 65535, wrapping around)
+- all 12 samples, each with its position (0 to 11) and microvolt value
+- a packet receipt time, taken from a monotonic clock as close to the Bluetooth callback as possible, so that Python's pipe buffering doesn't add delay
+
+For example, one line per packet could look like `EEG,<channel>,<packet_index>,<receipt_time>,<uv0>,…,<uv11>`. The live adapter would turn that into 12 `SampleRecord`s. The exact format is to agree with Zach, along with whether to `fflush(stdout)` after each packet.
+
+**Keep the two times separate.** `elapsed_s` stays sample-estimated, `(packet_index × 12 + sample_in_packet) / 256` counted from the first packet, because analysis needs evenly spaced samples and gaps need to keep their place in time. Receipt time records when the computer actually got each packet. It goes in its own column and never replaces `elapsed_s`. Comparing the two over a session is how we'd measure clock drift and Bluetooth bursts. The synthetic fixture has no receipt time on purpose: there's no Bluetooth callback, so any receipt time would be invented, and fake timestamps could later be mistaken for real ones.
+
+**What this test does not show.** The recorder-to-loader test proves that the writer's files and the loader agree on format, gaps and timing for one synthetic session. It does not verify live Muse recording. That still needs the C output above, a live adapter, and a check on the real headset that covers throughput at about 1,024 rows per second, reconnects, and real dropped packets.
