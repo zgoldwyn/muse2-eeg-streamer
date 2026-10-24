@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for synthetic artifact-detector evaluation metrics."""
 
 import unittest

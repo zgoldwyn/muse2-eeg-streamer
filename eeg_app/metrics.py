@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Evaluate artifact-detector predictions against reference EEG-window labels."""
 
 from collections.abc import Mapping, Sequence
