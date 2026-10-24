@@ -32,3 +32,12 @@ If the participant expresses discomfort with the headset or any of the instructi
 If the participant explicity requests to stop, abort the session. 
 
 If the headset loses connection or the recording fails in any way, abort the session. 
+
+# Session Outcomes Test (10/19/2026)
+Before you run the app, make sure that you have npm and vite installed in the frontend folder. Once you do this, you can use `npm run dev` in your terminal to run the program, where you'll have the choice to run the app locally or on your browser of choice. 
+
+Using this, I recorded two test demonstrations. An important thing to note is that I set each phase duration to be 2 seconds for efficiency purposes. The true phase durations are above in the timed participant script. The phase iteration buttons are still present for the operator to use if they so choose.
+
+The first demonstration was a complete run that completed all phases. In between phases, I added and corrected an observed marker, paused, and resumed the recording. I began the second demonstration from the "Start another session" option in the replay and review screen. In this demo, I started the session, let it automatically run for a little, then aborted it.
+
+Both sessions' Event IDs were unique from each other. The timer in the first session did not interfere with the second session's timer. The interface labels all simulated data from the headset and its channels, such as the channel readings, as such. At this time, I have removed all export options from the replay and review screen to prevent any confusion. 

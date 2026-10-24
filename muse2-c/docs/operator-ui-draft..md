@@ -6,3 +6,6 @@ The top of the screen displays the participant name, session ID, and visit numbe
 
 ![Replay and Review](images\eeg-operator-ui-draft-replay-and-review.jpg)
 The replay and review screen displays much of the same information as the live recording screen. However, the channel activity screen is minimized a small bit to make way for a full session overview that displays each phase and marker that was added or completed during the run. The recording time screen has more playback options for going through the recording. The add marker option at the bottom right is replaced by a session record screen, which includes multiple export options for the operator.
+
+# Browser to recorder handoff proposal
+A possible solution is to not rely on the browser clock or recorder's time-keeping system at all. Instead, we can run a small local Python server. Whenever a marker is added in the app, we can simply tell the Python server all associated information about the marker (e.g. event_id, session_id), ignoring the elapsed_s field. It would be the server's job to give the marker a timestamp using its own built-in clock and hand all the information, including the timestamp, to the recorder. 
