@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Extract window features and optionally produce illustrative demo predictions."""
 
 from collections.abc import Iterable, Mapping, Sequence
