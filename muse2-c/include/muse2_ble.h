@@ -4,6 +4,7 @@
 #define MUSE2_BLE_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,7 +29,8 @@ void muse2_c_on_characteristic_discovered(
 void muse2_c_on_eeg_packet(
     const char *characteristic_uuid,
     const unsigned char *bytes,
-    unsigned long length);
+    unsigned long length,
+    uint64_t receipt_ns);
 
 #ifdef __cplusplus
 }

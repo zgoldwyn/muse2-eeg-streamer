@@ -58,7 +58,10 @@ The four primary EEG channels are:
 ```text
 EEG,TP9,81,-60.5469
 EEG,AF7,81,-284.1797
+EEG_PACKET,TP9,81,1234567890123,-60.54687500,...
 ```
+
+`EEG_PACKET,<channel>,<packet_index>,<receipt_ns>,<uv0>,...,<uv11>` has all 12 values and is the line for recording. `EEG,...` has only the first value of each packet, and the live graph still uses it, so **the graph shows one value per packet, not the full signal.** See [Part 5 of the recording notes](docs/recording-data-draft.md#part-5-eeg_packet-output).
 
 - Reads the stream from Python using `subprocess`
 - Stores recent values in bounded rolling buffers
@@ -175,7 +178,7 @@ The acquisition and visualization pipeline is working as a research prototype. T
 
 Planned improvements include:
 
-- Outputting all 12 samples from each EEG packet
+- Moving the live graph to all 12 samples from each EEG packet
 - Detecting packet loss and sequence gaps
 - Improving subprocess shutdown
 - Adding automatic reconnection
