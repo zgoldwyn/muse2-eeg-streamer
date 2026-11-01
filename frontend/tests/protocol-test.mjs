@@ -18,7 +18,7 @@ test("the browser protocol uses only short demo durations", async () => {
 
   for (const phase of protocol.phases) {
     assert.equal(typeof phase.suggestedDuration.demoDurationSeconds, "number");
-    assert.ok(phase.suggestedDuration.demoDurationSeconds > 0);
+    assert.equal(phase.suggestedDuration.demoDurationSeconds, 4);
     assert.equal(
       Object.hasOwn(phase.suggestedDuration, "proposedParticipantProtocolSeconds"),
       false,
@@ -29,6 +29,6 @@ test("the browser protocol uses only short demo durations", async () => {
       (total, phase) => total + phase.suggestedDuration.demoDurationSeconds,
       0,
     ),
-    20,
+    40,
   );
 });

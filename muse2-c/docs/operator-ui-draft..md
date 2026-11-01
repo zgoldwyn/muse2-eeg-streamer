@@ -10,7 +10,7 @@ A possible solution is to not rely on the browser clock or recorder's time-keepi
 # Operator flow
 The operator can continue with contact quality unverified after acknowledging a warning. This bypasses an unavailable browser measurement; it does not assert that the physical headset is disconnected or that missing channels or recording gaps are acceptable. The acknowledgment is included in the event export.
 
-In `frontend/src/protocol.json`, each phase has `demoDurationSeconds: 2` for a 20-second UI walkthrough. These are not approved participant-protocol durations. Timed transitions and manual phase changes are distinguished by `transition_trigger` in the event export.
+In `frontend/src/protocol.json`, each phase has `demoDurationSeconds: 4` for a 40-second UI walkthrough. These are not approved participant-protocol durations. Timed transitions and manual phase changes are distinguished by `transition_trigger` in the event export.
 
 The operator can pause, resume, stop early, abort, correct a marker, export events, and start another demo. `elapsed_s` includes pauses; the phase countdown does not. Stopping early is incomplete, not completed. Corrections retain the original event and link to it with `corrects_event_id`.
 

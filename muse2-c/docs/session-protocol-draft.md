@@ -16,7 +16,7 @@ This table sketches a possible future headset-connected workflow. The current br
 
 # Timed Participant Script
 
-The durations below are early discussion estimates, not an approved participant protocol. The browser walkthrough uses separate two-second demo phases and does not record EEG.
+The durations below are early discussion estimates, not an approved participant protocol. The browser walkthrough currently uses separate four-second demo phases and does not record EEG.
 | Approximate time | Phase | Participant instruction | Operator action | Expected marker |
 | ---------------- | ----- | ----------------------- | --------------- | --------------- |
 | 1 min | Introduction to experiment | Listen to the operator | Greet the participant and explain what the participant should expect to experience and do in the experiment | Introduction |
