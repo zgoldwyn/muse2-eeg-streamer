@@ -82,7 +82,7 @@ Rolling plots on screen (nothing written to disk)
 12. The 18 payload bytes hold 12 × 12-bit samples, unpacked two samples per three bytes.
 
 **How many decoded samples are currently printed for the Python program?**
-One per packet (`microvolts[0]`). The other 11 are decoded and then discarded. Python receives 1/12 of the signal, about 21 samples per second per channel instead of 256.
+One per packet (`microvolts[0]`). The other 11 are decoded and then discarded. Python receives 1/12 of the signal, about 21 samples per second per channel instead of 256. (This describes the `EEG,...` line, which the live graph still uses. The scanner now also prints all 12 values on `EEG_PACKET` lines, see Part 5 at the end.)
 
 **What fields appear in a machine-readable `EEG,...` output line?**
 Four comma-separated fields: the literal tag `EEG`, the channel name (`TP9`, `AF7`, `AF8`, `TP10`, or in theory `AUX`), the packet index (0–65535), and one microvolt value printed with 4 decimals.
@@ -592,9 +592,9 @@ All tests are **synthetic tests**. They show that the writer and reader work, no
 
 ### Remaining live-recording limitations
 
-1. **The C streamer still prints only `microvolts[0]`**, 1 of the 12 samples, and no sample position. A live adapter can't produce full-rate `SampleRecord`s until `muse2_events.c` prints all 12 samples (see "Recommended next implementation step" above). This is to coordinate with Zach.
+1. **Resolved in Part 5.** The C streamer now prints all 12 samples on `EEG_PACKET` lines.
 2. **No live adapter exists yet.** Nothing turns scanner output into `SampleRecord`s, and `live_eeg.py` doesn't use the writer.
-3. **No arrival times.** Live sessions would have the sample-based `elapsed_s` only, with the limitations described in Part 1.
+3. **Arrival times aren't saved yet.** `EEG_PACKET` lines now carry a receipt time, but `SampleRecord` has no field for it, so live sessions would still have the sample-based `elapsed_s` only, with the limitations described in Part 1.
 4. **No `events.csv` yet**, so prompts and markers aren't saved.
 5. **Stopping on the first bad record** suits tests. A live recorder may need to log the bad record and keep going instead.
 6. **Not tested on hardware:** throughput at about 1,024 rows per second with a flush after every row, behaviour on reconnect, and pipe buffering.
@@ -654,23 +654,55 @@ So a session can finish cleanly and still have holes in it. Code that uses a ses
 
 ## Part 4: Handoff note for the future live input
 
-**What the C streamer gives us today.** The Bluetooth callback (`peripheral:didUpdateValueForCharacteristic:` in `muse2_ble.m`) passes each 20-byte packet to `muse2_c_on_eeg_packet` in `muse2_events.c`. That decodes the packet into `Muse2EegPacket`, which holds the packet index and all 12 raw values and microvolt values. But it prints just one line per packet:
+*Update: the C output described here now exists. See Part 5 for the final line format.*
+
+**What the C streamer gave us when this was written.** The Bluetooth callback (`peripheral:didUpdateValueForCharacteristic:` in `muse2_ble.m`) passes each 20-byte packet to `muse2_c_on_eeg_packet` in `muse2_events.c`. That decodes the packet into `Muse2EegPacket`, which holds the packet index and all 12 raw values and microvolt values. But it printed just one line per packet:
 
 ```text
 EEG,<channel>,<packet_index>,<microvolts[0]>
 ```
 
-So 11 of the 12 samples are thrown away, there's no sample position, and there's no time at all.
+So 11 of the 12 samples were thrown away, there was no sample position, and there was no time at all.
 
-**What a live adapter still needs, for each packet:**
+**What a live adapter needs, for each packet:**
 
 - the channel (TP9, AF7, AF8 or TP10)
 - the packet index (0 to 65535, wrapping around)
 - all 12 samples, each with its position (0 to 11) and microvolt value
 - a packet receipt time, taken from a monotonic clock as close to the Bluetooth callback as possible, so that Python's pipe buffering doesn't add delay
 
-For example, one line per packet could look like `EEG,<channel>,<packet_index>,<receipt_time>,<uv0>,…,<uv11>`. The live adapter would turn that into 12 `SampleRecord`s. The exact format is to agree with Zach, along with whether to `fflush(stdout)` after each packet.
+The live adapter turns one of these lines into 12 `SampleRecord`s.
 
 **Keep the two times separate.** `elapsed_s` stays sample-estimated, `(packet_index × 12 + sample_in_packet) / 256` counted from the first packet, because analysis needs evenly spaced samples and gaps need to keep their place in time. Receipt time records when the computer actually got each packet. It goes in its own column and never replaces `elapsed_s`. Comparing the two over a session is how we'd measure clock drift and Bluetooth bursts. The synthetic fixture has no receipt time on purpose: there's no Bluetooth callback, so any receipt time would be invented, and fake timestamps could later be mistaken for real ones.
 
-**What this test does not show.** The recorder-to-loader test proves that the writer's files and the loader agree on format, gaps and timing for one synthetic session. It does not verify live Muse recording. That still needs the C output above, a live adapter, and a check on the real headset that covers throughput at about 1,024 rows per second, reconnects, and real dropped packets.
+**What this test does not show.** The recorder-to-loader test proves that the writer's files and the loader agree on format, gaps and timing for one synthetic session. It does not verify live Muse recording. That still needs a live adapter and a check on the real headset that covers throughput at about 1,024 rows per second, reconnects, and real dropped packets.
+
+## Part 5: `EEG_PACKET` output
+
+Every valid packet from TP9, AF7, AF8 or TP10 now produces one line with all 12 values:
+
+```text
+EEG_PACKET,<channel>,<packet_index>,<receipt_ns>,<uv0>,...,<uv11>
+EEG_PACKET,TP9,93,1234567890123,21.48437500,-216.30859375,-151.85546875,95.21484375,90.82031250,-152.34375000,-195.31250000,39.55078125,142.57812500,-94.23828125,-219.23828125,-8.30078125
+```
+
+The receipt time in the example is a test value.
+
+| Field | Format |
+|---|---|
+| `channel` | `TP9`, `AF7`, `AF8` or `TP10` |
+| `packet_index` | The original 16-bit Muse index, 0 to 65535 |
+| `receipt_ns` | Unsigned integer, monotonic nanoseconds |
+| `uv0` to `uv11` | 12 microvolt values in sample order, 8 decimals |
+
+**Two lines, two readers.** For now the scanner prints both lines. The recorder reads only `EEG_PACKET`. The old `EEG,...` line stays so that `live_eeg.py` keeps working, which means **the live graph still uses one value per packet**, about 21 values per second per channel. It's fine for checking the headset is streaming, but it doesn't show the full signal.
+
+**How to parse it.** Accept a line only if it starts with exactly `EEG_PACKET,` and has 16 comma-separated fields. Debug messages never start that way. Parse the microvolts as floats. Keep the scanner's stderr separate from stdout, because `NSLog` messages go there.
+
+**Why 8 decimals.** Every value is a multiple of 0.48828125, so 8 decimals is exact. The old line's 4 decimals rounds.
+
+**The clock.** `receipt_ns` is read from `CLOCK_UPTIME_RAW` on the first line of the Bluetooth callback. On macOS this is the clock behind Python's `time.monotonic_ns()`, so the recorder can compare the two directly on the same Mac. It stops while the Mac sleeps, and the value means nothing on another computer or after a reboot. It records when macOS handed the packet to our code, not when the radio received it, so Bluetooth bursts will still show up as several packets arriving close together.
+
+**Promptness.** Standard output going to a pipe is normally held in a buffer, so the scanner flushes after every packet. The printing happens on the same thread as the Bluetooth callback, so the recorder has to keep reading. If the pipe fills up, the callback blocks and later receipt times come out late.
+
+**Testing without a headset.** `muse2-c/tests/emit_packets.c` sends known packets through the real `muse2_c_on_eeg_packet`, and `tests/test_eeg_packet_output.py` reads the result through a pipe. Run it with `python3 -m unittest tests.test_eeg_packet_output` from the repository root. This doesn't cover `muse2_ble.m` or a real headset, so the receipt clock and the Bluetooth path still need the headset check.

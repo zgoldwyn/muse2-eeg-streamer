@@ -4,6 +4,8 @@
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
 
+#include <time.h>
+
 #import "muse2_ble.h"
 
 
@@ -60,11 +62,13 @@ __attribute__((weak))
 void muse2_c_on_eeg_packet(
     const char *characteristic_uuid,
     const unsigned char *bytes,
-    unsigned long length
+    unsigned long length,
+    uint64_t receipt_ns
 ) {
     (void)characteristic_uuid;
     (void)bytes;
     (void)length;
+    (void)receipt_ns;
 }
 
 
@@ -592,6 +596,12 @@ void muse2_c_on_eeg_packet(
              error:
             (NSError *)error {
 
+    // Read the clock first so later work doesn't delay the receipt time.
+    // CLOCK_UPTIME_RAW is the clock behind Python's time.monotonic_ns() on
+    // macOS, so the recorder can compare these values directly.
+    uint64_t receipt_ns =
+        clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+
     (void)peripheral;
 
     NSString *uuid =
@@ -627,7 +637,8 @@ void muse2_c_on_eeg_packet(
     muse2_c_on_eeg_packet(
         [uuid UTF8String],
         bytes,
-        length
+        length,
+        receipt_ns
     );
 
     if (MUSE2_DEBUG_RAW_PACKETS &&

@@ -32,14 +32,15 @@ static int test_real_packet(void) {
         return 1;
     }
 
-    if (decoded.raw[0] != 2092) {
-        printf("FAIL: expected raw[0] = 2092, got %u\n", decoded.raw[0]);
-        return 1;
-    }
+    const uint16_t expected_raw[MUSE2_EEG_SAMPLES_PER_PACKET] = {
+        2092, 1605, 1737, 2243, 2234, 1736, 1648, 2129, 2340, 1855, 1599, 2031
+    };
 
-    if (decoded.raw[1] != 1605) {
-        printf("FAIL: expected raw[1] = 1605, got %u\n", decoded.raw[1]);
-        return 1;
+    for (int i = 0; i < MUSE2_EEG_SAMPLES_PER_PACKET; i++) {
+        if (decoded.raw[i] != expected_raw[i]) {
+            printf("FAIL: expected raw[%d] = %u, got %u\n", i, expected_raw[i], decoded.raw[i]);
+            return 1;
+        }
     }
 
     printf("PASS: real Muse 2 packet decoded correctly\n");
