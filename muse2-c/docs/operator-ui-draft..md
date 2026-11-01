@@ -1,3 +1,20 @@
+# What is being simulated
+Right now, it is crucial to note that there is NO simulated data being represented by the browser. There are no EEG readings or headset connections. The only recording is the browser's in-built timer and whatever marker buttons are pressed while the recording is active.
+
+# Browser to recorder handoff proposal
+A possible solution is to not rely on the browser clock or recorder's time-keeping system at all. Instead, we can run a small local Python server. Whenever a marker is added in the app, we can simply tell the Python server all associated information about the marker (e.g. event_id, session_id), ignoring the elapsed_s field. It would be the server's job to give the marker a timestamp using its own built-in clock and hand all the information, including the timestamp, to the recorder. 
+
+# Clarifications about the timer
+`elapsed_s` is currently based on the time since the play button was pressed and includes pauses. The phase countdown pauses with the recording controls. Currently, none of them are aligned with Namit's EEG sample times or Ben's packet-receipt clock. The browswer clock is its own independent time tracker.
+
+# Operator flow
+The "Begin Session with Contact Quality Unverified" is an option in case the operator would like to proceed with the experiment even if the headset is disconnected or the channel signal qualities are not up to par. The operator must acknowledge the note before being able to proceed.
+
+Right now, in frontend/src/protocol.json, the time for each phase is set to 2 seconds and is labeled as `"demoParticipantProtocolSeconds"`. This is because 2 seconds is not how long the phases will actually take, but I have it set as this to make frontend tests quicker. 
+
+The operator has the ability to pause and stop/abort the operation at any time. It is important to note that in the marker export, `elasped_s` represents the total time the experiment has taken, including pauses. The outcome of the operation will appear in the replay and review screen. The operator has the option to export the session's marker data and start a new session from this screen. 
+
+
 ![Session Setup](images\eeg-operator-ui-draft-session-setup.jpg)
 During this phase, the operator can add notes in the setup notes box. Once all the channel signal qualities are "good," the "begin session" button becomes available. Once pressed, the screen transfers to the live recording page. The session ID, participant name, and visit number are visible at the top of the screen. In the middle, the headset and channel connection statuses are visible. For each channel, there is an associated signal quality and samples received count, which measures the success rate at which samples come in from each channel. If any of the channels don't have a "good" signal quality, there is an error box that gives advice on what to change to achieve an acceptable signal quality.
 
@@ -6,6 +23,3 @@ The top of the screen displays the participant name, session ID, and visit numbe
 
 ![Replay and Review](images\eeg-operator-ui-draft-replay-and-review.jpg)
 The replay and review screen displays much of the same information as the live recording screen. However, the channel activity screen is minimized a small bit to make way for a full session overview that displays each phase and marker that was added or completed during the run. The recording time screen has more playback options for going through the recording. The add marker option at the bottom right is replaced by a session record screen, which includes multiple export options for the operator.
-
-# Browser to recorder handoff proposal
-A possible solution is to not rely on the browser clock or recorder's time-keeping system at all. Instead, we can run a small local Python server. Whenever a marker is added in the app, we can simply tell the Python server all associated information about the marker (e.g. event_id, session_id), ignoring the elapsed_s field. It would be the server's job to give the marker a timestamp using its own built-in clock and hand all the information, including the timestamp, to the recorder. 

@@ -9,11 +9,27 @@ type SessionMetadata = {
 
 const syntheticSessionMetadata: SessionMetadata = sessionMetadataFixture
 
-const channels = [
-  { name: "TP9", samples: "99.8%" },
-  { name: "AF7", samples: "99.6%" },
-  { name: "AF8", samples: "99.9%" },
-  { name: "TP10", samples: "99.4%" },
+type HeadsetConnectionStatus = {
+  label: string
+  isGood: boolean
+}
+
+type ChannelConnectionStatus = {
+  name: string
+  signalQuality: string
+  samples: string
+}
+
+const headsetConnection: HeadsetConnectionStatus = {
+  label: "Not connected to Muse",
+  isGood: false,
+}
+
+const channels: ChannelConnectionStatus[] = [
+  { name: "TP9", signalQuality: "No signal", samples: "N/A" },
+  { name: "AF7", signalQuality: "No signal", samples: "N/A" },
+  { name: "AF8", signalQuality: "No signal", samples: "N/A" },
+  { name: "TP10", signalQuality: "No signal", samples: "N/A" },
 ]
 
 const protocolPhases = protocol.phases
@@ -56,10 +72,10 @@ type Marker = {
   event_id: string
   session_id: string
   elapsed_s: number
-  event_type: "phase_started" | "prompt_shown" | "observer_marker" | "headset_adjustment" | "operator_note" | "marker_correction" | "recording_paused" | "recording_resumed"
+  event_type: "phase_started" | "prompt_shown" | "observer_marker" | "headset_adjustment" | "operator_note" | "marker_correction" | "recording_paused" | "recording_resumed" | "contact_quality_unverified"
   label: string
   source: "protocol" | "operator"
-  type: string
+  category: string
   color: string
   event_code?: string
   corrects_event_id?: string
@@ -94,33 +110,6 @@ function createEventId() {
   return crypto.randomUUID()
 }
 
-const traces = [
-  {
-    name: "TP9",
-    position: "Left temporal",
-    color: "#2563eb",
-    asset: "/assets/4c05a.svg",
-  },
-  {
-    name: "AF7",
-    position: "Left prefrontal",
-    color: "#d97706",
-    asset: "/assets/0ab84.svg",
-  },
-  {
-    name: "AF8",
-    position: "Right prefrontal",
-    color: "#ea580c",
-    asset: "/assets/be437.svg",
-  },
-  {
-    name: "TP10",
-    position: "Right temporal",
-    color: "#2563eb",
-    asset: "/assets/7557a.svg",
-  },
-]
-
 function formatTime(seconds: number) {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
@@ -141,7 +130,17 @@ function formatMarkerTime(seconds: number) {
   return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds}`
 }
 
-function ChannelCard({ name, samples }: { name: string samples: string }) {
+function ChannelCard({
+  name,
+  signalQuality,
+  samples,
+}: {
+  name: string
+  signalQuality: string
+  samples: string
+}) {
+  const hasGoodSignal = signalQuality === "Good"
+
   return (
     <article className="rounded-xl border border-[#e5e7eb] bg-white p-3">
       <h3 className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#111827]">
@@ -150,9 +149,17 @@ function ChannelCard({ name, samples }: { name: string samples: string }) {
       <div className="mt-2.5 space-y-2 text-[13px]">
         <div className="flex items-center justify-between gap-4">
           <span className="text-[#6b7280]">Signal quality</span>
-          <span className="flex items-center gap-1.5 font-['Inter:Semi_Bold'] font-semibold text-[#10b981]">
-            <span className="h-1.5 w-6 rounded-full bg-[#10b981]" />
-            Good
+          <span
+            className={`flex items-center gap-1.5 font-['Inter:Semi_Bold'] font-semibold ${
+              hasGoodSignal ? "text-[#10b981]" : "text-[#dc2626]"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-6 rounded-full ${
+                hasGoodSignal ? "bg-[#10b981]" : "bg-[#dc2626]"
+              }`}
+            />
+            {signalQuality}
           </span>
         </div>
         <div className="flex items-center justify-between gap-4">
@@ -177,6 +184,8 @@ type SessionOutcome = "Completed" | "Incomplete" | "Aborted"
 type SessionRecord = SessionMetadata & {
   elapsed: number
   markers: Marker[]
+  headsetConnection: HeadsetConnectionStatus
+  channelConnections: ChannelConnectionStatus[]
   phaseTimes: number[]
   completedPhases: number
   currentPhase: number
@@ -226,148 +235,295 @@ function SetupScreen({
   setDetails: (details: SessionDetails) => void
   notes: string
   setNotes: (notes: string) => void
-  onBegin: () => void
+  onBegin: (contactQualityUnverified: boolean) => void
 }) {
   const fields = [
     ["Session ID", "sessionId"],
     ["Participant Name", "participantName"],
     ["Visit / Session", "visit"],
   ] as const
-  const [missingFields, setMissingFields] = useState<keyof SessionDetails[]>([])
-  const missingFieldLabels = fields
-    .filter(([, key]) => missingFields.includes(key))
-    .map(([label]) => label)
-  const validationMessage =
-    missingFieldLabels.length > 0
-      ? `Please fill out: ${missingFieldLabels.join(", ")}.`
-      : ""
+  const [missingFields, setMissingFields] = useState<
+    (keyof SessionDetails)[]
+  >([])
+  const [setupErrors, setSetupErrors] = useState<string[]>([])
+  const [isWarningDialogOpen, setIsWarningDialogOpen] = useState(false)
+  const isErrorDialogOpen = setupErrors.length > 0
+  const isDialogOpen = isErrorDialogOpen || isWarningDialogOpen
 
-  const beginSession = () => {
-    const missing = fields
+  const getMissingRequiredFields = () =>
+    fields
       .filter(([, key]) => !details[key].trim())
       .map(([, key]) => key)
+
+  const getMissingFieldLabels = (missing: (keyof SessionDetails)[]) =>
+    fields
+      .filter(([, key]) => missing.includes(key))
+      .map(([label]) => label)
+
+  const beginSession = () => {
+    const missing = getMissingRequiredFields()
+    const missingFieldLabels = getMissingFieldLabels(missing)
+    const channelsWithoutGoodSignal = channels.filter(
+      (channel) => channel.signalQuality !== "Good",
+    )
+    const errors = [
+      ...(missingFieldLabels.length > 0
+        ? [`Fill out the required fields: ${missingFieldLabels.join(", ")}.`]
+        : []),
+      ...(!headsetConnection.isGood
+        ? [`Headset connection is not ready: ${headsetConnection.label}.`]
+        : []),
+      ...(channelsWithoutGoodSignal.length > 0
+        ? [
+            `Channel signal quality must be Good: ${channelsWithoutGoodSignal
+              .map(
+                (channel) => `${channel.name} (${channel.signalQuality})`,
+              )
+              .join(", ")}.`,
+          ]
+        : []),
+    ]
+
     setMissingFields(missing)
-    if (missing.length === 0) onBegin()
+    if (errors.length > 0) {
+      setSetupErrors(errors)
+      return
+    }
+    onBegin(false)
+  }
+
+  const beginSessionWithUnverifiedContact = () => {
+    const missing = getMissingRequiredFields()
+    const missingFieldLabels = getMissingFieldLabels(missing)
+
+    setMissingFields(missing)
+    if (missingFieldLabels.length > 0) {
+      setSetupErrors([
+        `Fill out the required fields: ${missingFieldLabels.join(", ")}.`,
+      ])
+      return
+    }
+    setIsWarningDialogOpen(true)
   }
 
   return (
-    <main className="h-full bg-[#f9fafb] px-20 py-6">
-      <header className="mx-auto flex max-w-[1040px] flex-col items-center gap-1.5 text-center">
-        <h1 className="font-['Inter:Bold'] text-[28px] leading-normal font-bold text-[#111827]">
-          Session Setup
-        </h1>
-        <p className="text-sm text-[#6b7280]">
-          Prepare the Muse headset and verify channel connectivity before
-          starting the experiment.
-        </p>
-      </header>
+    <>
+      <main
+        className="h-full bg-[#f9fafb] px-20 py-6"
+        aria-hidden={isDialogOpen}
+      >
+        <header className="mx-auto flex max-w-[1040px] flex-col items-center gap-1.5 text-center">
+          <h1 className="font-['Inter:Bold'] text-[28px] leading-normal font-bold text-[#111827]">
+            Session Setup
+          </h1>
+          <p className="text-sm text-[#6b7280]">
+            Prepare the Muse headset and verify channel connectivity before
+            starting the experiment.
+          </p>
+        </header>
 
-      <section className="mx-auto mt-4 flex max-w-[1040px] flex-col gap-3 rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-[0_4px_6px_rgba(0,0,0,0.05)]">
-        <div className="grid grid-cols-3 gap-4">
-          {fields.map(([label, key]) => (
-            <label key={key} className="flex min-w-0 flex-col gap-2">
-              <span className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#6b7280]">
-                {label}
-              </span>
-              <input
-                className={`meta-input ${
-                  missingFields.includes(key)
-                    ? "border-[#ef4444] ring-1 ring-[#fecaca]"
-                    : ""
-                }`}
-                value={details[key]}
-                onChange={(event) => {
-                  setDetails({ ...details, [key]: event.target.value })
-                  if (event.target.value.trim()) {
-                    setMissingFields((current) =>
-                      current.filter((field) => field !== key),
-                    )
-                  }
-                }}
-                aria-label={label}
-                aria-invalid={missingFields.includes(key)}
-                aria-describedby={
-                  missingFields.includes(key)
-                    ? "setup-validation-error"
-                    : undefined
-                }
-              />
-            </label>
-          ))}
-        </div>
-        <div className="h-px bg-[#e5e7eb]" />
-        <section className="flex flex-col items-start gap-3">
-          <div className="flex w-full items-center justify-between gap-4">
-            <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
-              Headset Connection
-            </h2>
-            <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
-              Simulated readings · Not live
-            </div>
-          </div>
-          <div className="flex items-center gap-2 rounded-full bg-[#ecfdf5] px-4 py-2">
-            <img src="/assets/b215c.svg" alt="" width="8" height="8" />
-            <span className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#065f46]">
-              Connected to Muse
-            </span>
-          </div>
-        </section>
-        <div className="h-px bg-[#e5e7eb]" />
-        <section className="flex flex-col gap-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex flex-col gap-1.5">
-              <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
-                Channel Status
-              </h2>
-              <p className="text-[13px] leading-6 text-[#6b7280]">
-                Signal quality: Good, Fair, Poor, or No signal. Samples received
-                = unique samples / expected samples ×100 over the last 10
-                seconds.
-              </p>
-            </div>
-            <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
-              Simulated readings · Not live
-            </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {channels.map((channel) => (
-              <ChannelCard key={channel.name} {...channel} />
+        <section className="mx-auto mt-4 flex max-w-[1040px] flex-col gap-3 rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-[0_4px_6px_rgba(0,0,0,0.05)]">
+          <div className="grid grid-cols-3 gap-4">
+            {fields.map(([label, key]) => (
+              <label key={key} className="flex min-w-0 flex-col gap-2">
+                <span className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#6b7280]">
+                  {label}
+                </span>
+                <input
+                  className={`meta-input ${
+                    missingFields.includes(key)
+                      ? "border-[#ef4444] ring-1 ring-[#fecaca]"
+                      : ""
+                  }`}
+                  value={details[key]}
+                  onChange={(event) => {
+                    setDetails({ ...details, [key]: event.target.value })
+                    if (event.target.value.trim()) {
+                      setMissingFields((current) =>
+                        current.filter((field) => field !== key),
+                      )
+                    }
+                  }}
+                  aria-label={label}
+                  aria-invalid={missingFields.includes(key)}
+                />
+              </label>
             ))}
           </div>
-        </section>
-        <div className="h-px bg-[#e5e7eb]" />
-        <label className="flex flex-col gap-1.5">
-          <span className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
-            Setup Notes
-          </span>
-          <textarea
-            className="form-textarea min-h-12"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Add setup notes, observations, or adjustments for this session..."
-          />
-        </label>
-        <div className="flex flex-col items-start gap-3">
-          <button
-            type="button"
-            className="primary-button"
-            onClick={beginSession}
-          >
-            <img src="/assets/399bb.svg" alt="" width="16" height="16" />
-            Begin Session
-          </button>
-          {validationMessage && (
-            <p
-              id="setup-validation-error"
-              role="alert"
-              className="text-xs font-medium text-[#dc2626]"
+          <div className="h-px bg-[#e5e7eb]" />
+          <section className="flex flex-col items-start gap-3">
+            <div className="flex w-full items-center justify-between gap-4">
+              <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
+                Headset Connection
+              </h2>
+              <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
+                Simulated readings
+              </div>
+            </div>
+            <div
+              className={`flex items-center gap-2 rounded-full px-4 py-2 ${
+                headsetConnection.isGood ? "bg-[#ecfdf5]" : "bg-[#fef2f2]"
+              }`}
             >
-              {validationMessage}
-            </p>
-          )}
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  headsetConnection.isGood ? "bg-[#10b981]" : "bg-[#dc2626]"
+                }`}
+              />
+              <span
+                className={`font-['Inter:Semi_Bold'] text-sm font-semibold ${
+                  headsetConnection.isGood
+                    ? "text-[#065f46]"
+                    : "text-[#b91c1c]"
+                }`}
+              >
+                {headsetConnection.label}
+              </span>
+            </div>
+          </section>
+          <div className="h-px bg-[#e5e7eb]" />
+          <section className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-1.5">
+                <h2 className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
+                  Channel Status
+                </h2>
+                <p className="text-[13px] leading-6 text-[#6b7280]">
+                  Signal quality: Good, Fair, Poor, or No signal. Samples
+                  received = unique samples / expected samples ×100 over the
+                  last 10 seconds.
+                </p>
+              </div>
+              <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
+                Simulated readings
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {channels.map((channel) => (
+                <ChannelCard key={channel.name} {...channel} />
+              ))}
+            </div>
+          </section>
+          <div className="h-px bg-[#e5e7eb]" />
+          <label className="flex flex-col gap-1.5">
+            <span className="font-['Inter:Semi_Bold'] text-base font-semibold text-[#111827]">
+              Setup Notes
+            </span>
+            <textarea
+              className="form-textarea min-h-12"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Add setup notes, observations, or adjustments for this session..."
+            />
+          </label>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={beginSession}
+            >
+              <img src="/assets/399bb.svg" alt="" width="16" height="16" />
+              Begin Session
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-[#cbd5e1] bg-[#e5e7eb] px-5 py-3 text-sm font-semibold text-[#64748b] hover:bg-[#d1d5db] active:translate-y-px"
+              onClick={beginSessionWithUnverifiedContact}
+            >
+              Begin Session with Contact Quality Unverified
+            </button>
+          </div>
+        </section>
+      </main>
+      {isErrorDialogOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0f172a]/25 backdrop-blur-sm">
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="setup-error-title"
+            aria-describedby="setup-error-message"
+            className="w-[420px] rounded-2xl border border-[#fecaca] bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.25)]"
+          >
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#fef2f2] text-xl font-bold text-[#dc2626]">
+              !
+            </div>
+            <h2
+              id="setup-error-title"
+              className="text-lg font-bold text-[#111827]"
+            >
+              Error
+            </h2>
+            <div
+              id="setup-error-message"
+              className="mt-2 text-sm leading-5 text-[#64748b]"
+            >
+              <ul className="list-disc space-y-1 pl-5">
+                {setupErrors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
+            </div>
+            <button
+              type="button"
+              autoFocus
+              className="mt-5 w-full rounded-lg bg-[#2563eb] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1d4ed8]"
+              onClick={() => setSetupErrors([])}
+            >
+              Return to Session Setup
+            </button>
+          </section>
         </div>
-      </section>
-    </main>
+      )}
+      {isWarningDialogOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0f172a]/25 backdrop-blur-sm">
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="setup-warning-title"
+            aria-describedby="setup-warning-message"
+            className="w-[480px] rounded-2xl border border-[#fde68a] bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.25)]"
+          >
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#fef2f2] text-xl font-bold text-[#dc2626]">
+              !
+            </div>
+            <h2
+              id="setup-warning-title"
+              className="text-lg font-bold text-[#111827]"
+            >
+              Warning
+            </h2>
+            <p
+              id="setup-warning-message"
+              className="mt-2 text-sm leading-5 text-[#64748b]"
+            >
+              Continuing without verifying the headset and channel connection
+              statuses is risky. The data read during recording is likely to be
+              inaccurate.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                autoFocus
+                className="rounded-lg bg-[#2563eb] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1d4ed8]"
+                onClick={() => {
+                  setIsWarningDialogOpen(false)
+                  onBegin(true)
+                }}
+              >
+                I acknowledge
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-[#cbd5e1] bg-[#e5e7eb] px-4 py-2.5 text-sm font-semibold text-[#475569] hover:bg-[#d1d5db]"
+                onClick={() => setIsWarningDialogOpen(false)}
+              >
+                Return to Session Setup
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -427,7 +583,7 @@ function MarkerPanel({
                         : "text-[#dc2626]"
                     }`}
                   >
-                    {marker.event_type.replaceAll("_", " ")}
+                    {marker.event_type.replace(/_/g, " ")}
                   </span>
                 </span>
               </span>
@@ -435,6 +591,9 @@ function MarkerPanel({
                 {formatMarkerTime(marker.elapsed_s)}
                 {marker.source === "operator" &&
                   marker.event_type !== "marker_correction" &&
+                  marker.event_type !== "recording_paused" &&
+                  marker.event_type !== "recording_resumed" &&
+                  marker.event_type !== "contact_quality_unverified" &&
                   !correctedEventIds.has(marker.event_id) && (
                     <button
                       type="button"
@@ -467,7 +626,13 @@ function MarkerPanel({
   )
 }
 
-function StatusStrip() {
+function StatusStrip({
+  headset,
+  channelConnections,
+}: {
+  headset: HeadsetConnectionStatus
+  channelConnections: ChannelConnectionStatus[]
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2 text-[11px] text-[#64748b]">
       <div className="flex items-center gap-2 border-r border-[#e2e8f0] pr-3">
@@ -476,119 +641,40 @@ function StatusStrip() {
           <span className="block text-[9px] uppercase text-[#94a3b8]">
             Muse headset
           </span>
-          <strong className="text-[#16a34a]">● Connected</strong>
+          <strong
+            className={headset.isGood ? "text-[#16a34a]" : "text-[#dc2626]"}
+          >
+            ● {headset.label}
+          </strong>
         </div>
       </div>
-      <span>
-        Signal <strong className="text-[#1e293b]">Excellent</strong>
-      </span>
-      <span>
-        Battery <strong className="text-[#16a34a]">78%</strong>
-      </span>
       <span className="text-[10px] font-semibold uppercase text-[#94a3b8]">
-        Channel contact
+        Channel status
       </span>
-      {["TP9 Good", "AF7 Fair", "AF8 Good", "TP10 Good"].map(
-        (status, index) => (
+      {channelConnections.map((channel) => {
+        const hasGoodSignal = channel.signalQuality === "Good"
+        return (
           <span
-            key={status}
-            className={`flex items-center gap-1 ${
-              index === 1 ? "text-[#d97706]" : "text-[#16a34a]"
+            key={channel.name}
+            className={`flex items-center gap-1 rounded border px-2 py-1 font-semibold ${
+              hasGoodSignal
+                ? "border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]"
+                : "border-[#fecaca] bg-[#fef2f2] text-[#b91c1c]"
             }`}
           >
-            <img
-              src={index === 1 ? "/assets/c024a.svg" : "/assets/03c33.svg"}
-              alt=""
-              width="8"
-              height="8"
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                hasGoodSignal ? "bg-[#16a34a]" : "bg-[#dc2626]"
+              }`}
             />
-            {status}
+            {channel.name}: {channel.signalQuality} · {channel.samples}
           </span>
-        ),
-      )}
-      <span className="flex items-center gap-1 rounded border border-[#fde68a] bg-[#fef3c7] px-2 py-1 text-[#92400e]">
-        <img src="/assets/6482e.svg" alt="" width="12" height="12" />
-        AF7 contact reduced — check electrode
-      </span>
+        )
+      })}
       <span className="ml-auto shrink-0 rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] font-semibold uppercase text-[#64748b]">
         Simulated data
       </span>
     </div>
-  )
-}
-
-function TracesCard() {
-  return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-[#e2e8f0] bg-white">
-      <div className="flex flex-wrap items-center gap-3 border-b border-[#e2e8f0] px-5 py-3">
-        <img src="/assets/4a76e.svg" alt="" width="16" height="16" />
-        <h2 className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#1e293b]">
-          EEG Channel Traces
-        </h2>
-        <span className="rounded-md border border-[#7c3aed] bg-[#f5f3ff] px-2 py-1 text-[10px] font-semibold text-[#334155]">
-          <img
-            className="mr-1 inline-block"
-            src="/assets/27f4c.svg"
-            alt=""
-            width="6"
-            height="6"
-          />
-          Intentional eye activity, end, return to quiet begin
-        </span>
-        <div className="ml-auto flex gap-4 text-[11px] text-[#94a3b8]">
-          <span>
-            Scale: <b className="text-[#1e293b]">±150 µV</b>
-          </span>
-          <span>
-            Sweep: <b className="text-[#1e293b]">10 s/div</b>
-          </span>
-          <span>
-            Filter: <b className="text-[#1e293b]">1–40 Hz</b>
-          </span>
-          <span className="flex items-center gap-1 text-[#dc2626]">
-            <img src="/assets/2ca2d.svg" alt="" width="6" height="6" />
-            LIVE
-          </span>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="flex h-full min-w-[1040px] flex-col">
-          {traces.map((trace) => (
-            <div
-              key={trace.name}
-              className="relative min-h-0 flex-1 overflow-hidden border-b border-[#e2e8f0] bg-[#fafcff] last:border-0"
-            >
-              <div className="absolute inset-x-0 top-[55px] h-px bg-[#e2e8f0]" />
-              <div className="absolute left-2 top-1 z-10">
-                <strong
-                  className="block text-[11px]"
-                  style={{ color: trace.color }}
-                >
-                  {trace.name}
-                </strong>
-                <span className="text-[9px] text-[#94a3b8]">
-                  {trace.position}
-                </span>
-              </div>
-              <img src={trace.asset} alt="" width="1040" height="110" />
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="flex h-7 items-center justify-around border-t border-[#e2e8f0] bg-[#f8fafc] text-[9px] text-[#94a3b8]">
-        {[
-          "00:00:00",
-          "00:00:10",
-          "00:00:20",
-          "00:00:30",
-          "00:00:40",
-          "00:00:50",
-        ].map((time) => (
-          <span key={time}>{time}</span>
-        ))}
-        <span>t (s)</span>
-      </div>
-    </section>
   )
 }
 
@@ -861,9 +947,11 @@ function ObservationControls({
 
 function Dashboard({
   details,
+  contactQualityUnverified,
   onFinish,
 }: {
   details: SessionDetails
+  contactQualityUnverified: boolean
   onFinish: (record: SessionRecord) => void
 }) {
   const [elapsed, setElapsed] = useState(0)
@@ -872,7 +960,22 @@ function Dashboard({
   const [currentPhase, setCurrentPhase] = useState(0)
   const [phaseTimes, setPhaseTimes] = useState(() => phases.map(() => 0))
   const [operatorNotes, setOperatorNotes] = useState("")
-  const [markers, setMarkers] = useState<Marker[]>([])
+  const [markers, setMarkers] = useState<Marker[]>(() =>
+    contactQualityUnverified
+      ? [
+          {
+            event_id: createEventId(),
+            session_id: details.sessionId || "unspecified-session",
+            elapsed_s: 0,
+            event_type: "contact_quality_unverified",
+            label: "Session started with contact quality unverified",
+            source: "operator",
+            category: markerTypes[4].name,
+            color: markerTypes[4].color,
+          },
+        ]
+      : [],
+  )
   const hasFinished = useRef(false)
   const sessionStartedAt = useRef<number | null>(null)
   const protocolElapsed = phaseTimes.reduce((total, time) => total + time, 0)
@@ -910,7 +1013,7 @@ function Dashboard({
         event_type: isPrompt ? "prompt_shown" : "phase_started",
         label: `${phase.eventCode}: ${phase.displayName}`,
         source: "protocol",
-        type: markerType.name,
+        category: markerType.name,
         color: markerType.color,
         event_code: phase.eventCode,
       },
@@ -942,31 +1045,43 @@ function Dashboard({
             : "observer_marker",
         label: noteLabel,
         source: "operator",
-        type: markerType.name,
+        category: markerType.name,
         color: markerType.color,
       },
     ])
   }
 
   const correctEvent = (eventId: string) => {
-    const originalEvent = markers.find((marker) => marker.event_id === eventId)
-    if (!originalEvent || originalEvent.source !== "operator") return
-    if (markers.some((marker) => marker.corrects_event_id === eventId)) return
+    const correctionElapsed = getPreciseElapsedSeconds()
 
-    setMarkers((currentMarkers) => [
-      ...currentMarkers,
-      {
-        event_id: createEventId(),
-        session_id: details.sessionId || "unspecified-session",
-        elapsed_s: getPreciseElapsedSeconds(),
-        event_type: "marker_correction",
-        label: `Correction: accidental marker — ${originalEvent.label}`,
-        source: "operator",
-        type: "Observed event",
-        color: "#64748b",
-        corrects_event_id: originalEvent.event_id,
-      },
-    ])
+    setMarkers((currentMarkers) => {
+      const originalEvent = currentMarkers.find(
+        (marker) => marker.event_id === eventId,
+      )
+      if (!originalEvent || originalEvent.source !== "operator") {
+        return currentMarkers
+      }
+      if (
+        currentMarkers.some((marker) => marker.corrects_event_id === eventId)
+      ) {
+        return currentMarkers
+      }
+
+      return [
+        ...currentMarkers,
+        {
+          event_id: createEventId(),
+          session_id: details.sessionId || "unspecified-session",
+          elapsed_s: correctionElapsed,
+          event_type: "marker_correction",
+          label: `Correction: accidental marker — ${originalEvent.label}`,
+          source: "operator",
+          category: "Observed event",
+          color: "#64748b",
+          corrects_event_id: originalEvent.event_id,
+        },
+      ]
+    })
   }
 
   const correctedEventIds = new Set(
@@ -980,6 +1095,7 @@ function Dashboard({
       marker.event_type !== "marker_correction" &&
       marker.event_type !== "recording_paused" &&
       marker.event_type !== "recording_resumed" &&
+      marker.event_type !== "contact_quality_unverified" &&
       !correctedEventIds.has(marker.event_id),
   )
   const lastCorrectableEvent =
@@ -999,7 +1115,7 @@ function Dashboard({
         event_type: eventType,
         label,
         source: "operator",
-        type: markerType.name,
+        category: markerType.name,
         color: markerType.color,
       },
     ])
@@ -1037,6 +1153,8 @@ function Dashboard({
       ...syntheticSessionMetadata,
       elapsed,
       markers,
+      headsetConnection: { ...headsetConnection },
+      channelConnections: channels.map((channel) => ({ ...channel })),
       phaseTimes,
       completedPhases,
       currentPhase,
@@ -1109,10 +1227,12 @@ function Dashboard({
 
       <div className="grid h-[850px] grid-cols-[260px_minmax(0,1fr)] overflow-hidden">
         <MarkerPanel markers={markers} onCorrect={correctEvent} />
-        <div className="grid h-full min-w-0 grid-rows-[auto_minmax(0,1fr)_325px] gap-2.5 overflow-hidden p-3.5">
-          <StatusStrip />
-          <TracesCard />
-          <div className="grid h-[325px] min-h-0 grid-cols-[480px_380px_minmax(0,1fr)] items-start gap-2.5 overflow-hidden">
+        <div className="grid h-full min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2.5 overflow-hidden p-3.5">
+          <StatusStrip
+            headset={headsetConnection}
+            channelConnections={channels}
+          />
+          <div className="grid min-h-0 grid-cols-[480px_380px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden">
             <div className="h-[325px] space-y-2.5 overflow-hidden">
               <RecordingControls
                 elapsed={elapsed}
@@ -1168,33 +1288,6 @@ function Dashboard({
     </main>
   )
 }
-
-const reviewTraces = [
-  {
-    name: "TP9",
-    position: "Left temporal",
-    color: "#2563eb",
-    asset: "/assets/2afb9.svg",
-  },
-  {
-    name: "AF7",
-    position: "Left prefrontal",
-    color: "#d97706",
-    asset: "/assets/3177a.svg",
-  },
-  {
-    name: "AF8",
-    position: "Right prefrontal",
-    color: "#ea580c",
-    asset: "/assets/c6462.svg",
-  },
-  {
-    name: "TP10",
-    position: "Right temporal",
-    color: "#2563eb",
-    asset: "/assets/e3a9c.svg",
-  },
-]
 
 const phaseTimelineColors = [
   "#dbeafe",
@@ -1280,7 +1373,7 @@ function ReviewSidebar({ record }: { record: SessionRecord }) {
                         : "text-[#dc2626]"
                     }`}
                   >
-                    {marker.event_type.replaceAll("_", " ")}
+                    {marker.event_type.replace(/_/g, " ")}
                   </span>
                 </span>
               </span>
@@ -1338,74 +1431,6 @@ function ReviewSidebar({ record }: { record: SessionRecord }) {
         </div>
       </div>
     </aside>
-  )
-}
-
-function ReviewTraces() {
-  return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-[#e2e8f0] bg-white">
-      <div className="flex h-[45px] shrink-0 items-center gap-3 border-b border-[#e2e8f0] px-5">
-        <img src="/assets/4a76e.svg" alt="" width="16" height="16" />
-        <h2 className="text-sm font-semibold text-[#1e293b]">
-          EEG Channel Traces
-        </h2>
-        <span className="rounded bg-[#f1f5f9] px-2 py-1 text-[11px] text-[#64748b]">
-          At-recording signal
-        </span>
-        <div className="ml-auto flex gap-4 text-[11px] text-[#94a3b8]">
-          <span>
-            Scale: <b className="text-[#1e293b]">±150 µV</b>
-          </span>
-          <span>
-            Sweep: <b className="text-[#1e293b]">10 s/div</b>
-          </span>
-          <span>
-            Filter: <b className="text-[#1e293b]">1–40 Hz</b>
-          </span>
-          <span className="rounded bg-[#f1f5f9] px-2 py-0.5 font-semibold text-[#475569]">
-            ● PAUSED
-          </span>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1">
-        {reviewTraces.map((trace) => (
-          <div
-            key={trace.name}
-            className="relative h-1/4 overflow-hidden border-b border-[#e2e8f0] bg-[#fafcff] last:border-0"
-          >
-            <div className="absolute left-3 top-1 z-10">
-              <strong
-                className="block text-[11px]"
-                style={{ color: trace.color }}
-              >
-                {trace.name}
-              </strong>
-              <span className="text-[9px] text-[#94a3b8]">
-                {trace.position}
-              </span>
-            </div>
-            <img
-              className="absolute left-12 top-0 h-full w-[calc(100%-48px)]"
-              src={trace.asset}
-              alt=""
-            />
-          </div>
-        ))}
-      </div>
-      <div className="flex h-5 shrink-0 items-center justify-around border-t border-[#e2e8f0] bg-[#f8fafc] text-[9px] text-[#94a3b8]">
-        {[
-          "00:00:00",
-          "00:00:10",
-          "00:00:20",
-          "00:00:30",
-          "00:00:40",
-          "00:00:50",
-        ].map((time) => (
-          <span key={time}>{time}</span>
-        ))}
-        <span>t (s)</span>
-      </div>
-    </section>
   )
 }
 
@@ -1529,16 +1554,18 @@ function ReviewScreen({
   }
 
   const exportMarkers = () => {
-    const exportedMarkers = record.markers.map(
-      ({ event_id, session_id, elapsed_s, event_type, label, source }) => ({
-        event_id,
-        session_id,
-        elapsed_s,
-        event_type,
-        label,
-        source,
-      }),
-    )
+    const exportedMarkers = record.markers.map((marker) => ({
+      event_id: marker.event_id,
+      session_id: marker.session_id,
+      elapsed_s: marker.elapsed_s,
+      event_type: marker.event_type,
+      label: marker.label,
+      source: marker.source,
+      category: marker.category,
+      color: marker.color,
+      event_code: marker.event_code ?? null,
+      corrects_event_id: marker.corrects_event_id ?? null,
+    }))
     const fileContents = JSON.stringify(exportedMarkers, null, 2)
     const file = new Blob([fileContents], { type: "application/json" })
     const downloadUrl = URL.createObjectURL(file)
@@ -1581,40 +1608,26 @@ function ReviewScreen({
             <img src="/assets/d9fac.svg" alt="" width="14" height="14" /> REVIEW
             MODE
           </span>
-          <span className="rounded border border-[#fde047] bg-[#fef9c3] px-2.5 py-1 text-[11px] font-semibold text-[#92400e]">
-            At-recording data only — not live
-          </span>
         </div>
       </header>
       <div className="grid h-[844px] grid-cols-[260px_minmax(0,1fr)]">
         <ReviewSidebar record={record} />
-        <div className="grid min-w-0 grid-rows-[36px_292px_93px_minmax(0,1fr)] gap-2.5 overflow-hidden p-3.5">
-          <div className="flex items-center gap-3 text-[11px]">
-            <div className="flex h-full items-center gap-3 rounded-lg border border-[#e2e8f0] bg-white px-3">
-              <b className="text-[10px] uppercase text-[#94a3b8]">
-                At recording
-              </b>
-              <span>Muse Headset</span>
-              <span className="text-[#64748b]">
-                Signal <b className="text-[#1e293b]">Excellent</b>
-              </span>
-              <span className="text-[#64748b]">
-                Battery <b className="text-[#16a34a]">78%</b>
-              </span>
-            </div>
-            <div
-              className={`flex h-full items-center rounded-lg border px-3 font-bold ${outcomeStyles}`}
-            >
-              Session outcome&nbsp;·&nbsp;{record.outcome}
-            </div>
-            <span className="rounded bg-[#f1f5f9] px-2 py-1 italic text-[#94a3b8]">
-              contact ≠ artifact-free signal
-            </span>
-            <span className="shrink-0 rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] font-semibold uppercase text-[#64748b]">
-              Simulated data
-            </span>
+        <div className="grid min-w-0 grid-rows-[auto_93px_minmax(0,1fr)] gap-2.5 overflow-hidden p-3.5">
+          <div className="space-y-2">
+            <StatusStrip
+              headset={record.headsetConnection}
+              channelConnections={record.channelConnections}
+            />
+            {!record.headsetConnection.isGood && (
+              <div
+                role="note"
+                className="rounded-lg border border-[#fecaca] bg-[#fef2f2] px-4 py-2 text-xs font-semibold text-[#b91c1c]"
+              >
+                There is no simulated data coming in from the Muse headset
+                currently.
+              </div>
+            )}
           </div>
-          <ReviewTraces />
           <SessionOverview record={record} />
           <div className="grid min-h-0 grid-cols-[480px_380px_minmax(0,1fr)] gap-2.5">
             <div className="grid min-h-0 grid-rows-[132px_minmax(0,1fr)] gap-2.5">
@@ -1722,13 +1735,10 @@ function ReviewScreen({
                 </div>
               </section>
               <section className="min-h-0 rounded-[10px] border border-[#e2e8f0] bg-white px-5 py-3">
-                <div className="mb-2 flex justify-between">
+                <div className="mb-2">
                   <h2 className="text-[10px] font-semibold uppercase text-[#94a3b8]">
                     Operator notes
                   </h2>
-                  <span className="rounded border border-[#bbf7d0] bg-[#f0fdf4] px-2 py-0.5 text-[10px] font-semibold text-[#15803d]">
-                    Saved
-                  </span>
                 </div>
                 <div className="h-[76px] whitespace-pre-line overflow-y-auto rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-3 text-[12px] leading-4 text-[#334155]">
                   {noteText || "No notes were recorded for this session."}
@@ -1835,6 +1845,7 @@ function App() {
   })
   const [setupNotes, setSetupNotes] = useState("")
   const [record, setRecord] = useState<SessionRecord | null>(null)
+  const [contactQualityUnverified, setContactQualityUnverified] = useState(false)
 
   return (
     <DesktopCanvas>
@@ -1844,11 +1855,15 @@ function App() {
           setDetails={setDetails}
           notes={setupNotes}
           setNotes={setSetupNotes}
-          onBegin={() => setScreen("dashboard")}
+          onBegin={(isContactQualityUnverified) => {
+            setContactQualityUnverified(isContactQualityUnverified)
+            setScreen("dashboard")
+          }}
         />
       ) : screen === "dashboard" ? (
         <Dashboard
           details={details}
+          contactQualityUnverified={contactQualityUnverified}
           onFinish={(finalRecord) => {
             setRecord(finalRecord)
             setScreen("review")
@@ -1867,6 +1882,7 @@ function App() {
             })
             setSetupNotes("")
             setRecord(null)
+            setContactQualityUnverified(false)
             setScreen("setup")
           }}
         />

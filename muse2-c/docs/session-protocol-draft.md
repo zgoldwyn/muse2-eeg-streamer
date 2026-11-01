@@ -41,3 +41,12 @@ Using this, I recorded two test demonstrations. An important thing to note is th
 The first demonstration was a complete run that completed all phases. In between phases, I added and corrected an observed marker, paused, and resumed the recording. I began the second demonstration from the "Start another session" option in the replay and review screen. In this demo, I started the session, let it automatically run for a little, then aborted it.
 
 Both sessions' Event IDs were unique from each other. The timer in the first session did not interfere with the second session's timer. The interface labels all simulated data from the headset and its channels, such as the channel readings, as such. At this time, I have removed all export options from the replay and review screen to prevent any confusion. 
+
+# Interface Test (10/31/2026)
+For this test, I recorded three demonstrations. At this point, the app is set so that the headset and channel connection statuses are "not connected," forcing the operator to press the "Begin Session with Contact Quality Unverified" button and acknowledge the disclaimer before they can proceed with the recording. 
+
+In the first demonstration, I let the entire procedure complete automatically with one pause in the middle. During this test, I added observed blinks and corrected one of them. After the procedure completed, I verified that the correction linked back to the marker that it was intended to correct. I also verified that `elapsed_s` represents the total running time of the procedure including pause time. 
+
+From the replay and review screen, I began another session with a unique Session ID. I let it run automatically for two phases before stopping it. This test helped me verify that the procedure appeared as "incomplete" in the replay and review screen. I successfully exported the events for this test.
+
+I ran one more session from the replay and review screen. This time, I aborted the session almost immediately. I verified that the procedure appeared as "aborted" in the replay and review screen and exported the events.
