@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eeg-app"
+version = "0.1.0"
+description = "Initial EEG preprocessing utilities for Muse 2 recordings."
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["eeg_app"]

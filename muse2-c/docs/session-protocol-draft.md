@@ -1,4 +1,6 @@
 # End-to-End Session Workflow
+This table sketches a possible future headset-connected workflow. The current browser demo does not connect to the Muse, measure channel contact, save EEG, or replay a real recording; it only exports operator event JSON.
+
 | Stage | Participant action | Operator action | What the interface displays | What the system records | Potential failure cases |
 | ----- | ------------------ | --------------- | --------------------------- | ----------------------- | ----------------------- |
 | Begin session | Wait for operator | Create a new session using a new custom session ID rather than the participant's name | New session screen displaying session ID | Session ID and participant name (separately) | Session ID isn't unique, participant name is incorrect |
@@ -13,6 +15,8 @@
 | Save session | Wait for operator | Save the session and check if the file was saved properly | "Save session" button  | Filepath for saved session | Saved session cannot be replayed | 
 
 # Timed Participant Script
+
+The durations below are early discussion estimates, not an approved participant protocol. The browser walkthrough uses separate two-second demo phases and does not record EEG.
 | Approximate time | Phase | Participant instruction | Operator action | Expected marker |
 | ---------------- | ----- | ----------------------- | --------------- | --------------- |
 | 1 min | Introduction to experiment | Listen to the operator | Greet the participant and explain what the participant should expect to experience and do in the experiment | Introduction |
@@ -36,16 +40,16 @@ If the headset loses connection or the recording fails in any way, abort the ses
 # Session Outcomes Test (10/19/2026)
 Before you run the app, make sure that you have npm and vite installed in the frontend folder. Once you do this, you can use `npm run dev` in your terminal to run the program, where you'll have the choice to run the app locally or on your browser of choice. 
 
-Using this, I recorded two test demonstrations. An important thing to note is that I set each phase duration to be 2 seconds for efficiency purposes. The true phase durations are above in the timed participant script. The phase iteration buttons are still present for the operator to use if they so choose.
+Using this, I recorded two browser demonstrations. Each phase duration was set to two seconds for a quick walkthrough; the draft durations above have not been approved for participant use. The phase iteration buttons remain available as manual controls.
 
 The first demonstration was a complete run that completed all phases. In between phases, I added and corrected an observed marker, paused, and resumed the recording. I began the second demonstration from the "Start another session" option in the replay and review screen. In this demo, I started the session, let it automatically run for a little, then aborted it.
 
-Both sessions' Event IDs were unique from each other. The timer in the first session did not interfere with the second session's timer. The interface labels all simulated data from the headset and its channels, such as the channel readings, as such. At this time, I have removed all export options from the replay and review screen to prevent any confusion. 
+Both sessions' Event IDs were unique from each other. The timer in the first session did not interfere with the second session's timer. The interface labels simulated traces as such. Event JSON export is available; EEG, EDF, and CSV export are not implemented.
 
 # Interface Test (10/31/2026)
-For this test, I recorded three demonstrations. At this point, the app is set so that the headset and channel connection statuses are "not connected," forcing the operator to press the "Begin Session with Contact Quality Unverified" button and acknowledge the disclaimer before they can proceed with the recording. 
+For this test, I ran three demonstrations. The app has no Muse connection or contact-quality measurement, so the operator has to choose "Continue with contact quality unverified" and acknowledge the warning before starting the demo.
 
-In the first demonstration, I let the entire procedure complete automatically with one pause in the middle. During this test, I added observed blinks and corrected one of them. After the procedure completed, I verified that the correction linked back to the marker that it was intended to correct. I also verified that `elapsed_s` represents the total running time of the procedure including pause time. 
+In the first demonstration, I let the entire procedure complete automatically with one pause in the middle. During this test, I added observed blinks and corrected one of them. After the procedure completed, I verified that the correction linked back to the marker that it was intended to correct. I also verified that `elapsed_s` represents the total running time of the procedure including pause time.
 
 From the replay and review screen, I began another session with a unique Session ID. I let it run automatically for two phases before stopping it. This test helped me verify that the procedure appeared as "incomplete" in the replay and review screen. I successfully exported the events for this test.
 

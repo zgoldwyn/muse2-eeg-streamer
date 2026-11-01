@@ -1,19 +1,22 @@
-# What is being simulated
-Right now, it is crucial to note that there is NO simulated data being represented by the browser. There are no EEG readings or headset connections. The only recording is the browser's in-built timer and whatever marker buttons are pressed while the recording is active.
+# Current browser-demo scope
+The interface does not connect to the Muse, measure electrode contact, receive EEG samples, or save an EEG recording. The timer, phase progression, illustrative sample count, and operator events are browser-only. The operator can note a visual headset-fit check, but it is not a measured contact-quality result. Only the event JSON is downloadable; it is not synchronized to the saved EEG session.
 
 # Browser to recorder handoff proposal
-A possible solution is to not rely on the browser clock or recorder's time-keeping system at all. Instead, we can run a small local Python server. Whenever a marker is added in the app, we can simply tell the Python server all associated information about the marker (e.g. event_id, session_id), ignoring the elapsed_s field. It would be the server's job to give the marker a timestamp using its own built-in clock and hand all the information, including the timestamp, to the recorder. 
+A possible solution is to not rely on the browser clock or recorder's time-keeping system at all. Instead, we can run a small local Python server. Whenever a marker is added in the app, we can simply tell the Python server all associated information about the marker (e.g. event_id, session_id), ignoring the elapsed_s field. It would be the server's job to give the marker a timestamp using its own built-in clock and hand all the information, including the timestamp, to the recorder.
 
 # Clarifications about the timer
-`elapsed_s` is currently based on the time since the play button was pressed and includes pauses. The phase countdown pauses with the recording controls. Currently, none of them are aligned with Namit's EEG sample times or Ben's packet-receipt clock. The browswer clock is its own independent time tracker.
+`elapsed_s` is based on the browser's monotonic time since the first Play and includes pauses. The phase countdown stops during pauses. Neither clock is aligned with Namit's EEG sample times or Ben's packet-receipt clock. The pre-Play contact-quality acknowledgment has `elapsed_s: 0` plus `acknowledged_at_utc`, a browser wall-clock timestamp that is also not synchronized to the recorder.
 
 # Operator flow
-The "Begin Session with Contact Quality Unverified" is an option in case the operator would like to proceed with the experiment even if the headset is disconnected or the channel signal qualities are not up to par. The operator must acknowledge the note before being able to proceed.
+The operator can continue with contact quality unverified after acknowledging a warning. This bypasses an unavailable browser measurement; it does not assert that the physical headset is disconnected or that missing channels or recording gaps are acceptable. The acknowledgment is included in the event export.
 
-Right now, in frontend/src/protocol.json, the time for each phase is set to 2 seconds and is labeled as `"demoParticipantProtocolSeconds"`. This is because 2 seconds is not how long the phases will actually take, but I have it set as this to make frontend tests quicker. 
+In `frontend/src/protocol.json`, each phase has `demoDurationSeconds: 2` for a 20-second UI walkthrough. These are not approved participant-protocol durations. Timed transitions and manual phase changes are distinguished by `transition_trigger` in the event export.
 
-The operator has the ability to pause and stop/abort the operation at any time. It is important to note that in the marker export, `elasped_s` represents the total time the experiment has taken, including pauses. The outcome of the operation will appear in the replay and review screen. The operator has the option to export the session's marker data and start a new session from this screen. 
+The operator can pause, resume, stop early, abort, correct a marker, export events, and start another demo. `elapsed_s` includes pauses; the phase countdown does not. Stopping early is incomplete, not completed. Corrections retain the original event and link to it with `corrects_event_id`.
 
+## Original concept sketches
+
+The sketches and descriptions below depict a possible future live interface, not the current browser implementation. They should not be used as evidence that live EEG, contact-quality measurement, or EDF export exists.
 
 ![Session Setup](images\eeg-operator-ui-draft-session-setup.jpg)
 During this phase, the operator can add notes in the setup notes box. Once all the channel signal qualities are "good," the "begin session" button becomes available. Once pressed, the screen transfers to the live recording page. The session ID, participant name, and visit number are visible at the top of the screen. In the middle, the headset and channel connection statuses are visible. For each channel, there is an associated signal quality and samples received count, which measures the success rate at which samples come in from each channel. If any of the channels don't have a "good" signal quality, there is an error box that gives advice on what to change to achieve an acceptable signal quality.

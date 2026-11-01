@@ -1,0 +1,5 @@
+[
+  {"window_id": "integration-demo-001:window-000000", "label": "clean"},
+  {"window_id": "integration-demo-001:window-000001", "label": "invalid"},
+  {"window_id": "integration-demo-001:window-000002", "label": "artifact"}
+]

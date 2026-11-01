@@ -21,15 +21,15 @@ type ChannelConnectionStatus = {
 }
 
 const headsetConnection: HeadsetConnectionStatus = {
-  label: "Not connected to Muse",
+  label: "Browser demo: no Muse connection",
   isGood: false,
 }
 
 const channels: ChannelConnectionStatus[] = [
-  { name: "TP9", signalQuality: "No signal", samples: "N/A" },
-  { name: "AF7", signalQuality: "No signal", samples: "N/A" },
-  { name: "AF8", signalQuality: "No signal", samples: "N/A" },
-  { name: "TP10", signalQuality: "No signal", samples: "N/A" },
+  { name: "TP9", signalQuality: "Not measured", samples: "N/A" },
+  { name: "AF7", signalQuality: "Not measured", samples: "N/A" },
+  { name: "AF8", signalQuality: "Not measured", samples: "N/A" },
+  { name: "TP10", signalQuality: "Not measured", samples: "N/A" },
 ]
 
 const protocolPhases = protocol.phases
@@ -79,6 +79,8 @@ type Marker = {
   color: string
   event_code?: string
   corrects_event_id?: string
+  transition_trigger?: "session_start" | "timer" | "manual"
+  acknowledged_at_utc?: string
 }
 
 type ObservationKind = "blink" | "facial-muscle" | "head-movement" | "headset-adjustment" | "operator-note"
@@ -151,12 +153,12 @@ function ChannelCard({
           <span className="text-[#6b7280]">Signal quality</span>
           <span
             className={`flex items-center gap-1.5 font-['Inter:Semi_Bold'] font-semibold ${
-              hasGoodSignal ? "text-[#10b981]" : "text-[#dc2626]"
+              hasGoodSignal ? "text-[#10b981]" : "text-[#64748b]"
             }`}
           >
             <span
               className={`h-1.5 w-6 rounded-full ${
-                hasGoodSignal ? "bg-[#10b981]" : "bg-[#dc2626]"
+                hasGoodSignal ? "bg-[#10b981]" : "bg-[#94a3b8]"
               }`}
             />
             {signalQuality}
@@ -235,7 +237,7 @@ function SetupScreen({
   setDetails: (details: SessionDetails) => void
   notes: string
   setNotes: (notes: string) => void
-  onBegin: (contactQualityUnverified: boolean) => void
+  onBegin: (acknowledgedAtUtc: string) => void
 }) {
   const fields = [
     ["Session ID", "sessionId"],
@@ -259,38 +261,6 @@ function SetupScreen({
     fields
       .filter(([, key]) => missing.includes(key))
       .map(([label]) => label)
-
-  const beginSession = () => {
-    const missing = getMissingRequiredFields()
-    const missingFieldLabels = getMissingFieldLabels(missing)
-    const channelsWithoutGoodSignal = channels.filter(
-      (channel) => channel.signalQuality !== "Good",
-    )
-    const errors = [
-      ...(missingFieldLabels.length > 0
-        ? [`Fill out the required fields: ${missingFieldLabels.join(", ")}.`]
-        : []),
-      ...(!headsetConnection.isGood
-        ? [`Headset connection is not ready: ${headsetConnection.label}.`]
-        : []),
-      ...(channelsWithoutGoodSignal.length > 0
-        ? [
-            `Channel signal quality must be Good: ${channelsWithoutGoodSignal
-              .map(
-                (channel) => `${channel.name} (${channel.signalQuality})`,
-              )
-              .join(", ")}.`,
-          ]
-        : []),
-    ]
-
-    setMissingFields(missing)
-    if (errors.length > 0) {
-      setSetupErrors(errors)
-      return
-    }
-    onBegin(false)
-  }
 
   const beginSessionWithUnverifiedContact = () => {
     const missing = getMissingRequiredFields()
@@ -317,8 +287,8 @@ function SetupScreen({
             Session Setup
           </h1>
           <p className="text-sm text-[#6b7280]">
-            Prepare the Muse headset and verify channel connectivity before
-            starting the experiment.
+            Browser-only walkthrough: no Muse connection or electrode-contact
+            measurement is available here.
           </p>
         </header>
 
@@ -357,7 +327,7 @@ function SetupScreen({
                 Headset Connection
               </h2>
               <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
-                Simulated readings
+                No live measurement
               </div>
             </div>
             <div
@@ -389,13 +359,13 @@ function SetupScreen({
                   Channel Status
                 </h2>
                 <p className="text-[13px] leading-6 text-[#6b7280]">
-                  Signal quality: Good, Fair, Poor, or No signal. Samples
-                  received = unique samples / expected samples ×100 over the
-                  last 10 seconds.
+                  Electrode contact quality and sample receipt are not measured
+                  by this browser demo. Visually check the fit and note any
+                  adjustments below.
                 </p>
               </div>
               <div className="shrink-0 rounded-full bg-[#f3f4f6] px-2.5 py-1.5 font-['Inter:Semi_Bold'] text-xs font-semibold text-[#6b7280]">
-                Simulated readings
+                Not measured
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -420,17 +390,9 @@ function SetupScreen({
             <button
               type="button"
               className="primary-button"
-              onClick={beginSession}
-            >
-              <img src="/assets/399bb.svg" alt="" width="16" height="16" />
-              Begin Session
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-[#cbd5e1] bg-[#e5e7eb] px-5 py-3 text-sm font-semibold text-[#64748b] hover:bg-[#d1d5db] active:translate-y-px"
               onClick={beginSessionWithUnverifiedContact}
             >
-              Begin Session with Contact Quality Unverified
+              Continue with contact quality unverified
             </button>
           </div>
         </section>
@@ -496,9 +458,10 @@ function SetupScreen({
               id="setup-warning-message"
               className="mt-2 text-sm leading-5 text-[#64748b]"
             >
-              Continuing without verifying the headset and channel connection
-              statuses is risky. The data read during recording is likely to be
-              inaccurate.
+              This browser demo cannot measure electrode contact or receive
+              Muse EEG. A visual fit check is useful but does not verify signal
+              quality. Continuing does not make missing channels or recording
+              gaps acceptable in a future recording.
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
@@ -507,7 +470,7 @@ function SetupScreen({
                 className="rounded-lg bg-[#2563eb] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1d4ed8]"
                 onClick={() => {
                   setIsWarningDialogOpen(false)
-                  onBegin(true)
+                  onBegin(new Date().toISOString())
                 }}
               >
                 I acknowledge
@@ -672,7 +635,7 @@ function StatusStrip({
         )
       })}
       <span className="ml-auto shrink-0 rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] font-semibold uppercase text-[#64748b]">
-        Simulated data
+        Browser demo · no EEG recorded
       </span>
     </div>
   )
@@ -702,7 +665,7 @@ function RecordingControls({
       <div className="flex flex-wrap items-center gap-4">
         <div>
           <h2 className="text-[10px] font-semibold uppercase text-[#94a3b8]">
-            Protocol Active
+            Demo protocol clock
           </h2>
           <p className="font-['Inter:Bold'] text-[34px] font-bold text-[#1e293b]">
             {formatTime(protocolElapsed)}
@@ -715,14 +678,14 @@ function RecordingControls({
             }`}
           >
             <img src="/assets/4179f.svg" alt="" width="10" height="10" />
-            {isRunning ? "RECORDING" : hasStarted ? "PAUSED" : "READY"}
+            {isRunning ? "DEMO RUNNING" : hasStarted ? "DEMO PAUSED" : "DEMO READY"}
           </strong>
           <p>
             Session clock:{" "}
             <b className="text-[#1e293b]">{formatTime(elapsed)}</b>
           </p>
           <p>
-            Samples:{" "}
+            Illustrative samples (not recorded):{" "}
             <b className="text-[#1e293b]">
               {(
                 protocolElapsed *
@@ -825,7 +788,7 @@ function PhaseControl({
             {formatPhaseTime(phaseTimes[currentPhase])}
           </b>
           <span className="ml-2 text-[#7c3aed]">
-            Target: {phase.suggestedDuration.proposedParticipantProtocolSeconds}
+            Demo target: {phase.suggestedDuration.demoDurationSeconds}
             s
           </span>
         </p>
@@ -947,11 +910,11 @@ function ObservationControls({
 
 function Dashboard({
   details,
-  contactQualityUnverified,
+  contactAcknowledgedAtUtc,
   onFinish,
 }: {
   details: SessionDetails
-  contactQualityUnverified: boolean
+  contactAcknowledgedAtUtc: string | null
   onFinish: (record: SessionRecord) => void
 }) {
   const [elapsed, setElapsed] = useState(0)
@@ -961,17 +924,18 @@ function Dashboard({
   const [phaseTimes, setPhaseTimes] = useState(() => phases.map(() => 0))
   const [operatorNotes, setOperatorNotes] = useState("")
   const [markers, setMarkers] = useState<Marker[]>(() =>
-    contactQualityUnverified
+    contactAcknowledgedAtUtc
       ? [
           {
             event_id: createEventId(),
             session_id: details.sessionId || "unspecified-session",
             elapsed_s: 0,
             event_type: "contact_quality_unverified",
-            label: "Session started with contact quality unverified",
+            label: "Contact quality not measured; operator acknowledged warning",
             source: "operator",
             category: markerTypes[4].name,
             color: markerTypes[4].color,
+            acknowledged_at_utc: contactAcknowledgedAtUtc,
           },
         ]
       : [],
@@ -1000,7 +964,10 @@ function Dashboard({
     return () => window.clearInterval(interval)
   }, [hasStarted, isRunning, currentPhase])
 
-  const recordPhaseTransition = (phaseIndex: number) => {
+  const recordPhaseTransition = (
+    phaseIndex: number,
+    trigger: "session_start" | "timer" | "manual",
+  ) => {
     const phase = protocolPhases[phaseIndex]
     const isPrompt = phase.phaseId.includes("prompt")
     const markerType = isPrompt ? markerTypes[2] : markerTypes[1]
@@ -1011,11 +978,12 @@ function Dashboard({
         session_id: details.sessionId || "unspecified-session",
         elapsed_s: getPreciseElapsedSeconds(),
         event_type: isPrompt ? "prompt_shown" : "phase_started",
-        label: `${phase.eventCode}: ${phase.displayName}`,
+        label: `${phase.eventCode}: ${phase.displayName}${trigger === "manual" ? " (manual change)" : ""}`,
         source: "protocol",
         category: markerType.name,
         color: markerType.color,
         event_code: phase.eventCode,
+        transition_trigger: trigger,
       },
     ])
   }
@@ -1124,7 +1092,7 @@ function Dashboard({
   const play = () => {
     if (!hasStarted) {
       sessionStartedAt.current = performance.now()
-      recordPhaseTransition(0)
+      recordPhaseTransition(0, "session_start")
     } else {
       recordRecordingControl("recording_resumed", "Recording resumed")
     }
@@ -1137,10 +1105,13 @@ function Dashboard({
     setIsRunning(false)
   }
 
-  const transitionToPhase = (phaseIndex: number) => {
+  const transitionToPhase = (
+    phaseIndex: number,
+    trigger: "timer" | "manual" = "manual",
+  ) => {
     if (phaseIndex === currentPhase) return
     setCurrentPhase(phaseIndex)
-    recordPhaseTransition(phaseIndex)
+    recordPhaseTransition(phaseIndex, trigger)
   }
 
   const finishSession = (outcome: SessionOutcome) => {
@@ -1195,11 +1166,11 @@ function Dashboard({
     if (!isRunning || hasFinished.current) return
     const phaseDuration =
       protocolPhases[currentPhase].suggestedDuration
-        .proposedParticipantProtocolSeconds
+        .demoDurationSeconds
     if (phaseTimes[currentPhase] < phaseDuration) return
 
     if (currentPhase < phases.length - 1) {
-      transitionToPhase(currentPhase + 1)
+      transitionToPhase(currentPhase + 1, "timer")
     } else {
       finishSession("Completed")
     }
@@ -1415,7 +1386,7 @@ function ReviewSidebar({ record }: { record: SessionRecord }) {
           <b className="text-[#1e293b]">{formatTime(protocolElapsed)}</b>
         </p>
         <p className="text-[#64748b]">
-          Samples:{" "}
+          Illustrative expected samples (none recorded):{" "}
           <b className="text-[#1e293b]">
             {(protocolElapsed * record.nominal_sample_rate_hz).toLocaleString()}
           </b>
@@ -1565,6 +1536,8 @@ function ReviewScreen({
       color: marker.color,
       event_code: marker.event_code ?? null,
       corrects_event_id: marker.corrects_event_id ?? null,
+      transition_trigger: marker.transition_trigger ?? null,
+      acknowledged_at_utc: marker.acknowledged_at_utc ?? null,
     }))
     const fileContents = JSON.stringify(exportedMarkers, null, 2)
     const file = new Blob([fileContents], { type: "application/json" })
@@ -1623,8 +1596,8 @@ function ReviewScreen({
                 role="note"
                 className="rounded-lg border border-[#fecaca] bg-[#fef2f2] px-4 py-2 text-xs font-semibold text-[#b91c1c]"
               >
-                There is no simulated data coming in from the Muse headset
-                currently.
+                This browser demo did not record Muse EEG. Its event times are
+                not synchronized with the EEG recorder.
               </div>
             )}
           </div>
@@ -1806,7 +1779,7 @@ function ReviewScreen({
                 </p>
                 <p className="text-lg font-bold">{record.outcome}</p>
                 <p className="mt-1 text-[11px]">
-                  {record.completedPhases} of {phases.length} phases recorded.
+                  {record.completedPhases} of {phases.length} demo phases completed.
                 </p>
               </div>
               <button
@@ -1845,7 +1818,7 @@ function App() {
   })
   const [setupNotes, setSetupNotes] = useState("")
   const [record, setRecord] = useState<SessionRecord | null>(null)
-  const [contactQualityUnverified, setContactQualityUnverified] = useState(false)
+  const [contactAcknowledgedAtUtc, setContactAcknowledgedAtUtc] = useState<string | null>(null)
 
   return (
     <DesktopCanvas>
@@ -1855,15 +1828,15 @@ function App() {
           setDetails={setDetails}
           notes={setupNotes}
           setNotes={setSetupNotes}
-          onBegin={(isContactQualityUnverified) => {
-            setContactQualityUnverified(isContactQualityUnverified)
+          onBegin={(acknowledgedAtUtc) => {
+            setContactAcknowledgedAtUtc(acknowledgedAtUtc)
             setScreen("dashboard")
           }}
         />
       ) : screen === "dashboard" ? (
         <Dashboard
           details={details}
-          contactQualityUnverified={contactQualityUnverified}
+          contactAcknowledgedAtUtc={contactAcknowledgedAtUtc}
           onFinish={(finalRecord) => {
             setRecord(finalRecord)
             setScreen("review")
@@ -1882,7 +1855,7 @@ function App() {
             })
             setSetupNotes("")
             setRecord(null)
-            setContactQualityUnverified(false)
+            setContactAcknowledgedAtUtc(null)
             setScreen("setup")
           }}
         />

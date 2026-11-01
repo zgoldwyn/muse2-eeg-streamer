@@ -1,0 +1,6 @@
+{
+  "session_id": "synthetic-6s",
+  "nominal_sample_rate_hz": 256,
+  "samples_per_packet": 12,
+  "development_session_ids": ["synthetic-6s"]
+}

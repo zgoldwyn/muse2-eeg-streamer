@@ -38,6 +38,8 @@ def read_eeg_stream():
     for line in process.stdout:# read the output line by line (one packet per line)
         line = line.strip()
 
+        # This graph still uses one value per packet (microvolts[0]). The full 12 values are on
+        # the EEG_PACKET lines, which are for the recorder and are skipped here.
         if not line.startswith("EEG,"): #each line format defined in C stdout is EEG,<electrode>,<packet_index>,<microvolts>
             continue
 
