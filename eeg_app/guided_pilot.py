@@ -33,6 +33,7 @@ CUES = (
     ("Move your head gently", 10),
     ("Rest quietly", 10),
 )
+READY = {1: "blink", 3: "raise your eyebrows", 5: "move your head gently"}
 SCANNER = Path("muse2-c/build/muse2_scan")
 
 
@@ -48,6 +49,7 @@ def main() -> int:
     events: list[tuple[str, str, int, float]] = []
     first_receipt_ns: int | None = None
     cue_index = 0
+    ready_announced_for: int | None = None
     next_cue_s = 0
     duration_s = sum(seconds for _, seconds in CUES)
     terminal_fd = sys.stdin.fileno()
@@ -61,7 +63,7 @@ def main() -> int:
         tty.setcbreak(terminal_fd)
 
         def guided_lines():
-            nonlocal first_receipt_ns, cue_index, next_cue_s
+            nonlocal first_receipt_ns, cue_index, ready_announced_for, next_cue_s
             assert scanner.stdout is not None
             for line in iter_packet_lines(scanner.stdout):
                 receipt_ns = parse_eeg_packet_line(line).receipt_monotonic_ns
@@ -79,6 +81,17 @@ def main() -> int:
                         subprocess.Popen(["say", cue], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     next_cue_s += seconds
                     cue_index += 1
+
+                if (cue_index in READY and ready_announced_for != cue_index
+                        and next_cue_s - 3 <= elapsed_s < next_cue_s):
+                    message = f"Get ready to {READY[cue_index]}"
+                    stamp_ns = time.monotonic_ns()
+                    approx_s = (stamp_ns - first_receipt_ns) / 1e9
+                    events.append(("ready", message, stamp_ns, approx_s))
+                    print(f"\n{approx_s:5.1f}s  {message}...", flush=True)
+                    if shutil.which("say"):
+                        subprocess.Popen(["say", message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    ready_announced_for = cue_index
 
                 if select.select([terminal_fd], [], [], 0)[0]:
                     for key in os.read(terminal_fd, 32):
