@@ -7,6 +7,11 @@ name = "eeg-app"
 version = "0.1.0"
 description = "Initial EEG preprocessing utilities for Muse 2 recordings."
 requires-python = ">=3.10"
+dependencies = [
+    "h5py>=3.10",
+    "mne>=1.0",
+    "scikit-learn>=1.0",
+]
 
 [tool.setuptools]
 packages = ["eeg_app"]
