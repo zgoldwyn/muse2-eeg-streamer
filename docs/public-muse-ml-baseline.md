@@ -13,8 +13,8 @@ For each selected public participant and condition, pair:
 
 The EDF provides the four Muse EEG channels (`TP9`, `AF7`, `AF8`, `TP10`) at
 its actual recorded sample rate. The reader ignores `Right AUX` and time
-channels. MNE reads EEG in volts; the importer converts only those four EEG
-arrays to microvolts before feature extraction.
+channels. For this public Muse EDF dataset, those four channel arrays are
+already on a microvolt scale, so the importer preserves that scale for feature extraction.
 
 The paired BLP MATLAB file supplies timing markers only. It is MATLAB v7.3,
 read with `h5py`. EEGLAB's one-based event latency is converted as

@@ -1,7 +1,8 @@
 """Import a small public Muse 2 EDF subset into feature-ready EEG windows.
 
 The raw EDF recordings are local, ignored research inputs.  This module reads
-only TP9, AF7, AF8, and TP10, converts MNE's EEG volts to microvolts, and uses
+only TP9, AF7, AF8, and TP10, preserves this public EDF dataset's
+already-microvolt-scale values, and uses
 the matching BLP MATLAB event file only for task/rest timing markers.
 """
 
@@ -160,7 +161,7 @@ def import_public_muse_recording(
         raise ValueError(f"{window_length_s} seconds is not an integer number of EDF samples at {sample_rate_hz} Hz.")
 
     # MNE keeps EEG in SI volts.  Convert only the selected EEG signal to uV.
-    signal_uv = raw.get_data(picks=list(REQUIRED_CHANNELS)) * 1_000_000.0
+    signal_uv = raw.get_data(picks=list(REQUIRED_CHANNELS))
     if not np.isfinite(signal_uv).all():
         raise ValueError(f"{edf_path} contains nonfinite values in a required EEG channel.")
 
