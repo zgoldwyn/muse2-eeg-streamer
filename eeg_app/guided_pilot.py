@@ -19,21 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .live_adapter import iter_packet_lines, parse_eeg_packet_line, record_packet_lines
+from .pilot_sequence import CUES, READY, READY_LEAD_S
 from .recording import check_session, format_report, read_session
 from .review import export_review_bundle
 
 
-# Pilot-only cues, not a finalized participant protocol.
-CUES = (
-    ("Rest quietly", 10),
-    ("Blink softly twice, then firmly once", 10),
-    ("Rest quietly", 10),
-    ("Raise your eyebrows", 10),
-    ("Rest quietly", 10),
-    ("Move your head gently", 10),
-    ("Rest quietly", 10),
-)
-READY = {1: "blink", 3: "raise your eyebrows", 5: "move your head gently"}
 SCANNER = Path("muse2-c/build/muse2_scan")
 
 
@@ -83,7 +73,7 @@ def main() -> int:
                     cue_index += 1
 
                 if (cue_index in READY and ready_announced_for != cue_index
-                        and next_cue_s - 3 <= elapsed_s < next_cue_s):
+                        and next_cue_s - READY_LEAD_S <= elapsed_s < next_cue_s):
                     message = f"Get ready to {READY[cue_index]}"
                     stamp_ns = time.monotonic_ns()
                     approx_s = (stamp_ns - first_receipt_ns) / 1e9
