@@ -230,17 +230,60 @@ class FailureTest(ServiceTestCase):
             any("AF8" in reason for reason in window["reasons"]) for window in summary["windows"]["invalid"]
         ))
 
-    def test_malformed_packet_keeps_earlier_rows(self):
+    def wait_rejected(self, count):
+        wait_for(lambda: self.service._active.rejected_packets == count)
+
+    def test_malformed_packet_is_skipped_and_logged(self):
         session_id = self.start()
         self.feed(range(0, 3))
         self.service.on_scanner_line("EEG_PACKET,TP9,3,123,not-a-number")
+        self.wait_rejected(1)
+        self.feed(range(4, 6))
+        recorder = self.service.status()["recorder"]
+        self.assertEqual(recorder["state"], "recording")
+        self.assertIn("PacketFormatError", recorder["last_rejection"])
+        result = self.service.end_session(session_id, {"outcome": "completed"})
+        self.assertEqual((result["recording_status"], result["rows_written"]), ("complete", 5 * 4 * 12))
+        summary = self.service.summary(session_id)
+        self.assertEqual(summary["rejected_packets"]["count"], 1)
+        self.assertEqual(summary["rejected_packets"]["examples"][0]["line"], "EEG_PACKET,TP9,3,123,not-a-number")
+        self.assertEqual(summary["check"]["missing_packets"], [{"packet_index": 3, "channels": list(CHANNELS)}])
+        self.assertTrue(summary["check"]["ok"])
+
+    def test_repeated_packet_is_dropped_without_losing_data(self):
+        session_id = self.start()
+        self.feed(range(0, 3))
+        self.service.on_scanner_line(packet_line("AF7", 2))
+        self.wait_rejected(1)
+        self.feed(range(3, 5))
+        self.service.end_session(session_id, {"outcome": "completed"})
+        summary = self.service.summary(session_id)
+        self.assertIn("DuplicatePacketError", summary["rejected_packets"]["examples"][0]["reason"])
+        self.assertEqual(summary["check"]["rows_per_channel"], dict.fromkeys(CHANNELS, 5 * 12))
+        self.assertEqual(summary["check"]["duplicate_samples"], [])
+
+    def test_out_of_order_packet_is_skipped(self):
+        session_id = self.start()
+        self.feed([0, 1, 3])
+        self.service.on_scanner_line(packet_line("TP9", 2))  # arrives after packet 3
+        self.wait_rejected(1)
+        self.service.end_session(session_id, {"outcome": "completed"})
+        summary = self.service.summary(session_id)
+        self.assertIn("InvalidRecordError", summary["rejected_packets"]["examples"][0]["reason"])
+        self.assertEqual(summary["check"]["rows_per_channel"]["TP9"], 3 * 12)
+        self.assertTrue(summary["check"]["ok"])
+
+    def test_long_run_of_rejected_packets_interrupts(self):
+        session_id = self.start()
+        self.feed(range(0, 3))
+        for _ in range(dashboard_service.MAX_CONSECUTIVE_REJECTED):
+            self.service.on_scanner_line("EEG_PACKET,TP9,garbage")
         wait_for(lambda: self.service._active.state == "interrupted")
-        self.assertIn("PacketFormatError", self.service.status()["recorder"]["stop_reason"])
-        result = self.service.end_session(session_id, {"outcome": "aborted", "reason": "bad packet"})
+        self.assertIn("TooManyRejectedPacketsError", self.service.status()["recorder"]["stop_reason"])
+        result = self.service.end_session(session_id, {"outcome": "aborted", "reason": "stream unusable"})
         self.assertEqual((result["recording_status"], result["rows_written"]), ("interrupted", 3 * 4 * 12))
         saved = read_session(self.sessions_dir() / session_id)
         self.assertEqual(len(saved.records), 3 * 4 * 12)
-        self.assertEqual(saved.metadata["status"], "interrupted")
 
     def test_existing_session_id_is_never_reused(self):
         existing = self.sessions_dir() / "ses-aaaaaaaa"

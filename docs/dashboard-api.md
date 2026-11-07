@@ -183,6 +183,7 @@ Sessions recorded through this service, newest first.
 ### `GET /api/sessions/{id}` (fixture `session_summary`)
 
 - `outcome`, `reason`, `recording_status`, `stop_reason`, `data_source`, `eeg_span_s`, `event_count`.
+- `rejected_packets`: `count` and up to 20 `examples` (`reason`, `line`) of packets that were skipped. See the failure table below.
 - `check` comes straight from `check_session`: `ok`, `total_rows`, `rows_per_channel`, `missing_packets`, `duplicate_samples`, `problems`.
 - `windows` comes from Namit's `create_fixed_windows` (2 s windows): `total`, `valid`, and `invalid[]` with each window's reasons.
 - `review_bundle.url` is a link to Samuel's prediction-free bundle, created on first request in `recordings/{id}-review/`. Open it in a new tab. If it can't be made (for example, no rows were saved), `url` is `null` and `error` says why.
@@ -225,7 +226,8 @@ Each case has a test in `tests/test_dashboard_service.py` (`FailureTest`, `Outco
 | No packets arriving | Recorder stays `waiting_for_packets`; device shows `searching` or `stalled`. | Ending gives 0 rows, `recording_status: complete`, the outcome the operator chose, and no review bundle. |
 | A channel missing | `recent_packets` is `false` for that channel, and its `samples_per_channel` stays 0. | 0 rows for that channel; every window is invalid with the reason "required channel … is missing". |
 | Scanner exits | Session becomes `interrupted`. The scanner restarts after 2 s. | Rows already written are kept, `status: interrupted` with the reason. `completed` is refused. |
-| Malformed packet | Same as `record_packet_lines`: the adapter rejects it and the session becomes `interrupted`. | Rows before the bad line are kept, with the `PacketFormatError` as the reason. |
+| Malformed, repeated or out-of-order packet | The adapter or writer rejects it, as in `record_packet_lines`. **Unlike** the terminal recorder, the backend skips that one packet, logs it in `rejected_packets.csv`, and keeps recording. `recorder.rejected_packets` and `last_rejection` show it live. | No rows from the rejected packet. It reads back as an ordinary missing packet (a repeated one loses nothing, since the first copy was saved). The summary lists `rejected_packets`. |
+| Many rejected packets in a row | After 32 in a row (about 0.4 s of all four channels, for example if the packet index resets after a reconnect), the session becomes `interrupted`. | Rows kept, reason `TooManyRejectedPacketsError`. |
 | Duplicate session ID | IDs are generated, and an ID whose folder already exists is skipped. `SessionWriter` also refuses an existing folder. | Existing sessions are never touched. |
 | Browser closes or reloads | Nothing. Recording doesn't depend on the browser. A reopened dashboard sees the open session in `/api/status` and can open and end it. | Unchanged. |
 | Backend stopped (Ctrl+C) | Open session is closed as `interrupted`. | Rows kept, reason "the dashboard backend was stopped". If the process is killed outright, `metadata.json` stays `recording`, which the writer defines as "the process died without cleanup". |
@@ -267,6 +269,12 @@ ls data/sessions/<id>/       # eeg.csv metadata.json packet_receipts.csv events.
 git status                   # data/ and recordings/ are ignored, so nothing should show up
 ```
 
+If the dashboard says **Recording interrupted**, the reason tells you why:
+- `ScannerLostError`: the scanner exited.
+- `TooManyRejectedPacketsError`: the headset kept sending packets that couldn't be saved, which most likely means the packet index reset after a reconnect.
+
+In both cases the rows saved before that point are kept. A single bad or repeated packet doesn't interrupt anything. It's counted in the session summary under `rejected_packets`.
+
 Without the dashboard, the same steps work with `curl`:
 - `POST /api/sessions` with `{}` starts a session.
 - `POST /api/sessions/<id>/events` adds an event.
@@ -291,6 +299,7 @@ data/sessions/<session_id>/          (git-ignored)
     metadata.json         SessionWriter, unchanged
     packet_receipts.csv   PacketReceiptWriter, unchanged
     events.csv            one row per event, fields as in the event response
+    rejected_packets.csv  only if a packet was rejected: time, reason, the line
     session.json          protocol_id, start_monotonic_ns, first_packet_receipt_ns, outcome, reason, ended_at_utc
 recordings/<session_id>-review/      Samuel's review bundle (git-ignored)
 ```

@@ -40,6 +40,7 @@ from urllib.parse import parse_qs, urlparse
 from .dataset import create_fixed_windows, load_synthetic_session
 from .live_adapter import (
     PACKET_PREFIX,
+    LiveAdapterError,
     LivePacketAdapter,
     PacketBatch,
     PacketFormatError,
@@ -53,6 +54,7 @@ from .recording import (
     NOMINAL_SAMPLE_RATE_HZ,
     PACKET_INDEX_MODULUS,
     SAMPLES_PER_PACKET,
+    InvalidRecordError,
     SessionFormatError,
     SessionInterruptedError,
     SessionWriter,
@@ -78,6 +80,12 @@ SESSION_CLOSE_TIMEOUT_S = 10.0
 
 EVENTS_FILENAME = "events.csv"
 SESSION_FILENAME = "session.json"
+REJECTED_FILENAME = "rejected_packets.csv"
+REJECTED_COLUMNS = ("session_id", "received_monotonic_ns", "reason", "line")
+# One rejected packet is skipped and logged; this many in a row (about 0.4 s of
+# all four channels) means the stream itself is unusable, so the session is
+# interrupted as the terminal recorder would.
+MAX_CONSECUTIVE_REJECTED = 32
 EVENT_COLUMNS = (
     "event_id", "session_id", "event_type", "label", "source", "event_code",
     "corrects_event_id", "client_ref", "monotonic_ns", "session_elapsed_s",
@@ -108,6 +116,10 @@ class ApiError(Exception):
 
 class ScannerLostError(RuntimeError):
     """The packet source stopped while a session was recording."""
+
+
+class TooManyRejectedPacketsError(RuntimeError):
+    """Packets kept being rejected, for example after the packet index reset."""
 
 
 def _utc_now() -> str:
@@ -146,6 +158,9 @@ class ActiveSession:
     stop_reason: str | None = None
     first_packet_receipt_ns: int | None = None
     rows_written: int = 0
+    rejected_packets: int = 0
+    consecutive_rejected: int = 0
+    last_rejection: str | None = None
     samples_per_channel: dict[str, int] = field(
         default_factory=lambda: dict.fromkeys(REQUIRED_CHANNELS, 0)
     )
@@ -278,7 +293,7 @@ class DashboardService:
             return {
                 "state": "idle", "session_id": None, "session_elapsed_s": None,
                 "eeg_elapsed_s": None, "rows_written": None, "samples_per_channel": None,
-                "stop_reason": None,
+                "rejected_packets": None, "last_rejection": None, "stop_reason": None,
             }
         return {
             "state": session.state,
@@ -287,6 +302,8 @@ class DashboardService:
             "eeg_elapsed_s": session.latest_elapsed_s if session.rows_written else None,
             "rows_written": session.rows_written,
             "samples_per_channel": dict(session.samples_per_channel),
+            "rejected_packets": session.rejected_packets,
+            "last_rejection": session.last_rejection,
             "stop_reason": session.stop_reason,
         }
 
@@ -367,7 +384,14 @@ class DashboardService:
                 return session_id
 
     def _record(self, session: ActiveSession) -> None:
-        """Recorder thread: the same steps as live_adapter.record_packet_lines."""
+        """Recorder thread: the same steps as live_adapter.record_packet_lines.
+
+        One difference: a packet the adapter or writer rejects (malformed,
+        duplicate, out of order) is skipped and logged in rejected_packets.csv
+        instead of ending the session. Nothing from it is written, so it reads
+        back as an ordinary missing packet. A long run of rejections still
+        interrupts the session.
+        """
         adapter = LivePacketAdapter()
         try:
             writer = SessionWriter(
@@ -385,8 +409,14 @@ class DashboardService:
                             break
                         if isinstance(item, _Lost):
                             raise ScannerLostError(item.reason)
-                        batch = adapter.accept_line(item)
-                        writer.write_all(batch.records)
+                        try:
+                            batch = adapter.accept_line(item)
+                            # The writer validates the first record of a packet
+                            # before writing it, so a rejected packet writes no rows.
+                            writer.write_all(batch.records)
+                        except (LiveAdapterError, InvalidRecordError) as error:
+                            self._on_rejected(session, item, error)
+                            continue
                         receipts.write(batch.packet)
                         self._on_saved(session, batch, writer.rows_written)
         except SessionInterruptedError as error:
@@ -400,9 +430,27 @@ class DashboardService:
         finally:
             session.finished.set()
 
+    def _on_rejected(self, session: ActiveSession, line: str, error: Exception) -> None:
+        reason = f"{type(error).__name__}: {error}"
+        with (session.session_dir / REJECTED_FILENAME).open("a", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            if stream.tell() == 0:
+                writer.writerow(REJECTED_COLUMNS)
+            writer.writerow((session.session_id, time.monotonic_ns(), reason, line.rstrip("\r\n")[:300]))
+        with self._lock:
+            session.rejected_packets += 1
+            session.consecutive_rejected += 1
+            session.last_rejection = reason
+            consecutive = session.consecutive_rejected
+        if consecutive >= MAX_CONSECUTIVE_REJECTED:
+            raise TooManyRejectedPacketsError(
+                f"{consecutive} packets in a row were rejected; last: {reason}"
+            )
+
     def _on_saved(self, session: ActiveSession, batch: PacketBatch, rows_written: int) -> None:
         packet = batch.packet
         with self._lock:
+            session.consecutive_rejected = 0
             if session.first_packet_receipt_ns is None:
                 session.first_packet_receipt_ns = packet.receipt_monotonic_ns
             session.state = "recording"
@@ -664,6 +712,7 @@ class DashboardService:
             "channels": metadata.get("channels"),
             "eeg_span_s": 0.0 if last is None else last + _SAMPLE_S,
             "event_count": len(events),
+            "rejected_packets": self._read_rejected(directory),
             "check": {
                 "ok": check.ok,
                 "total_rows": check.total_rows,
@@ -726,6 +775,17 @@ class DashboardService:
         if root not in path.parents or not path.is_file():
             raise ApiError(404, "session_not_found", "No such review bundle file.")
         return path
+
+    def _read_rejected(self, directory: Path) -> dict:
+        path = directory / REJECTED_FILENAME
+        if not path.is_file():
+            return {"count": 0, "examples": []}
+        with path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        return {
+            "count": len(rows),
+            "examples": [{"reason": row["reason"], "line": row["line"]} for row in rows[:20]],
+        }
 
     def _read_events(self, directory: Path) -> list[dict]:
         path = directory / EVENTS_FILENAME
