@@ -672,6 +672,10 @@ class DashboardService:
                     {"packet_index": index, "channels": channels}
                     for index, channels in check.missing_packets.items()
                 ],
+                "duplicate_samples": [
+                    {"channel": channel, "packet_index": index, "sample_in_packet": position}
+                    for channel, index, position in check.duplicates
+                ],
                 "problems": check.problems,
             },
             "windows": self._windows(directory, bool(saved.records)),

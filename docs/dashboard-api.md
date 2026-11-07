@@ -183,7 +183,7 @@ Sessions recorded through this service, newest first.
 ### `GET /api/sessions/{id}` (fixture `session_summary`)
 
 - `outcome`, `reason`, `recording_status`, `stop_reason`, `data_source`, `eeg_span_s`, `event_count`.
-- `check` comes straight from `check_session`: `ok`, `total_rows`, `rows_per_channel`, `missing_packets`, `problems`.
+- `check` comes straight from `check_session`: `ok`, `total_rows`, `rows_per_channel`, `missing_packets`, `duplicate_samples`, `problems`.
 - `windows` comes from Namit's `create_fixed_windows` (2 s windows): `total`, `valid`, and `invalid[]` with each window's reasons.
 - `review_bundle.url` is a link to Samuel's prediction-free bundle, created on first request in `recordings/{id}-review/`. Open it in a new tab. If it can't be made (for example, no rows were saved), `url` is `null` and `error` says why.
 
@@ -215,6 +215,63 @@ Every error has the same body: `{ "error": { "code": "...", "message": "..." } }
 | 500 | `internal_error` | Bug. Rows already written are kept. |
 
 If the backend isn't running, `fetch` itself throws. Show "Backend not reachable" for that case.
+
+## What happens when something goes wrong
+
+Each case has a test in `tests/test_dashboard_service.py` (`FailureTest`, `OutcomeTest`, `GuardTest`).
+
+| Case | What the backend does | Saved result |
+|---|---|---|
+| No packets arriving | Recorder stays `waiting_for_packets`; device shows `searching` or `stalled`. | Ending gives 0 rows, `recording_status: complete`, the outcome the operator chose, and no review bundle. |
+| A channel missing | `recent_packets` is `false` for that channel, and its `samples_per_channel` stays 0. | 0 rows for that channel; every window is invalid with the reason "required channel … is missing". |
+| Scanner exits | Session becomes `interrupted`. The scanner restarts after 2 s. | Rows already written are kept, `status: interrupted` with the reason. `completed` is refused. |
+| Malformed packet | Same as `record_packet_lines`: the adapter rejects it and the session becomes `interrupted`. | Rows before the bad line are kept, with the `PacketFormatError` as the reason. |
+| Duplicate session ID | IDs are generated, and an ID whose folder already exists is skipped. `SessionWriter` also refuses an existing folder. | Existing sessions are never touched. |
+| Browser closes or reloads | Nothing. Recording doesn't depend on the browser. A reopened dashboard sees the open session in `/api/status` and can open and end it. | Unchanged. |
+| Backend stopped (Ctrl+C) | Open session is closed as `interrupted`. | Rows kept, reason "the dashboard backend was stopped". If the process is killed outright, `metadata.json` stays `recording`, which the writer defines as "the process died without cleanup". |
+| Early stop / abort | Writer closes normally. | `recording_status: complete`, outcome `incomplete` / `aborted` with the reason. Never reported as completed. |
+| Second session | Fresh recorder, adapter, buffers and event counter. | Its own rows only. Its EEG time starts at 0 and its first event is `evt-0001`. |
+
+## Headset test (about 10 minutes)
+
+On the Mac with the Muse, from the repository root:
+
+```bash
+cd muse2-c && make scan && cd ..
+python3 -m eeg_app.dashboard_service
+```
+
+In a second terminal:
+
+```bash
+curl -s http://127.0.0.1:8765/api/status
+```
+
+Turn the headset on. `device.state` should become `streaming`, with `recent_packets: true` for all four channels. Then start the dashboard (live mode is in Rushil's frontend PR):
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+Open the URL it prints and choose **Live local recording**. Then run three sessions:
+
+1. **Completed.** Do the fit check and acknowledgment, then Start. Follow the 70 s pilot prompts and press **A** on each observed blink. Press **Finish**. The review should show outcome *Completed*, saving *complete*, similar row counts per channel, and few or no missing packets. Open the review bundle and check that the blink prompts line up with frontal (AF7/AF8) deflections.
+2. **Early stop.** Start, wait about 15 s, then **Stop early** with a reason. The review should show *Incomplete* with saving *complete*.
+3. **Lost connection.** Start, wait about 10 s, then turn the headset off. The dashboard should show *Packets stalled*. Press **Abort** with a reason. The review should show *Aborted*, with the rows recorded before the headset went off.
+
+Afterwards:
+
+```bash
+ls data/sessions/            # three ses-xxxxxxxx folders
+ls data/sessions/<id>/       # eeg.csv metadata.json packet_receipts.csv events.csv session.json
+git status                   # data/ and recordings/ are ignored, so nothing should show up
+```
+
+Without the dashboard, the same steps work with `curl`:
+- `POST /api/sessions` with `{}` starts a session.
+- `POST /api/sessions/<id>/events` adds an event.
+- `POST /api/sessions/<id>/end` ends it.
+- `GET /api/sessions/<id>` returns the summary.
 
 ## Test-only controls (`--fake-headset` only)
 

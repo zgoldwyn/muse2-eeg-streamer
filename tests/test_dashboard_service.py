@@ -15,6 +15,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+from eeg_app import dashboard_service
 from eeg_app.dashboard_service import ApiError, DashboardService, make_handler
 from eeg_app.recording import check_session, read_session
 
@@ -194,6 +195,113 @@ class GuardTest(ServiceTestCase):
             self.service.add_event(session_id, event(
                 "c", event_type="marker_correction", label="Correction", corrects_event_id="evt-0042"))
         self.assertEqual(caught.exception.code, "unknown_event_reference")
+
+
+class FailureTest(ServiceTestCase):
+    """The failure cases listed in Part 3 of the assignment."""
+
+    def sessions_dir(self) -> Path:
+        return Path(self.tmp.name) / "sessions"
+
+    def test_no_packets_arriving(self):
+        session_id = self.start()
+        self.assertEqual(self.service.status()["recorder"]["state"], "waiting_for_packets")
+        self.assertEqual(self.service.live(session_id, None)["channels"]["TP9"]["elapsed_s"], [])
+        result = self.service.end_session(session_id, {"outcome": "incomplete", "reason": "no packets"})
+        self.assertEqual((result["rows_written"], result["recording_status"]), (0, "complete"))
+        summary = self.service.summary(session_id)
+        self.assertEqual(summary["outcome"], "incomplete")
+        self.assertEqual(summary["check"]["total_rows"], 0)
+        self.assertEqual(summary["windows"]["total"], 0)
+        self.assertIsNone(summary["review_bundle"]["url"])
+
+    def test_missing_channel(self):
+        session_id = self.start()
+        self.feed(range(0, 520), channels=("TP9", "AF7", "TP10"))  # about 24 s, AF8 silent
+        status = self.service.status()
+        recent = {channel["name"]: channel["recent_packets"] for channel in status["channels"]}
+        self.assertEqual(recent, {"TP9": True, "AF7": True, "AF8": False, "TP10": True})
+        self.assertEqual(status["recorder"]["samples_per_channel"]["AF8"], 0)
+        self.service.end_session(session_id, {"outcome": "incomplete", "reason": "AF8 silent"})
+        summary = self.service.summary(session_id)
+        self.assertEqual(summary["check"]["rows_per_channel"]["AF8"], 0)
+        self.assertEqual(summary["windows"]["valid"], 0)
+        self.assertTrue(all(
+            any("AF8" in reason for reason in window["reasons"]) for window in summary["windows"]["invalid"]
+        ))
+
+    def test_malformed_packet_keeps_earlier_rows(self):
+        session_id = self.start()
+        self.feed(range(0, 3))
+        self.service.on_scanner_line("EEG_PACKET,TP9,3,123,not-a-number")
+        wait_for(lambda: self.service._active.state == "interrupted")
+        self.assertIn("PacketFormatError", self.service.status()["recorder"]["stop_reason"])
+        result = self.service.end_session(session_id, {"outcome": "aborted", "reason": "bad packet"})
+        self.assertEqual((result["recording_status"], result["rows_written"]), ("interrupted", 3 * 4 * 12))
+        saved = read_session(self.sessions_dir() / session_id)
+        self.assertEqual(len(saved.records), 3 * 4 * 12)
+        self.assertEqual(saved.metadata["status"], "interrupted")
+
+    def test_existing_session_id_is_never_reused(self):
+        existing = self.sessions_dir() / "ses-aaaaaaaa"
+        existing.mkdir(parents=True)
+        (existing / "keep.txt").write_text("untouched")
+        letters = iter("a" * 8 + "b" * 8)
+
+        class FakeSecrets:
+            @staticmethod
+            def choice(alphabet):
+                return next(letters)
+
+        original = dashboard_service.secrets
+        dashboard_service.secrets = FakeSecrets
+        try:
+            session_id = self.start()
+        finally:
+            dashboard_service.secrets = original
+        self.assertEqual(session_id, "ses-bbbbbbbb")
+        self.assertEqual((existing / "keep.txt").read_text(), "untouched")
+
+    def test_browser_disconnect_does_not_stop_recording(self):
+        # The backend never depends on the browser: no polls, no events, still recording.
+        session_id = self.start()
+        self.feed(range(0, 5))
+        recorder = self.service.status()["recorder"]
+        self.assertEqual((recorder["state"], recorder["session_id"]), ("recording", session_id))
+        # A reopened dashboard finds the session through /api/status and can end it.
+        self.feed(range(5, 8))
+        result = self.service.end_session(session_id, {"outcome": "incomplete", "reason": "browser closed"})
+        self.assertEqual(result["rows_written"], 8 * 4 * 12)
+
+    def test_backend_stopping_marks_session_interrupted(self):
+        session_id = self.start()
+        self.feed(range(0, 3))
+        self.service.shutdown()
+        metadata = read_session(self.sessions_dir() / session_id).metadata
+        self.assertEqual(metadata["status"], "interrupted")
+        self.assertIn("backend was stopped", metadata["stop_reason"])
+        self.assertEqual(metadata["eeg_row_count"], 3 * 4 * 12)
+
+    def test_second_session_starts_clean(self):
+        first = self.start()
+        self.feed(range(0, 5))
+        self.service.add_event(first, event("first-1"))
+        self.service.end_session(first, {"outcome": "completed"})
+
+        second = self.start()
+        self.assertEqual(self.service.status()["recorder"]["rows_written"], 0)
+        self.assertEqual(self.service.live(second, None)["channels"]["TP9"]["elapsed_s"], [])
+        self.feed(range(100, 102))
+        _, saved = self.service.add_event(second, event("second-1"))
+        self.assertEqual(saved["event_id"], "evt-0001")
+        self.assertEqual(self.service.live(second, None)["channels"]["TP9"]["elapsed_s"][0], 0.0)
+        self.service.end_session(second, {"outcome": "completed"})
+
+        summary = self.service.summary(second)
+        self.assertEqual(summary["check"]["total_rows"], 2 * 4 * 12)
+        self.assertEqual(summary["check"]["duplicate_samples"], [])
+        self.assertEqual([e["client_ref"] for e in self.service.events(second)["events"]], ["second-1"])
+        self.assertEqual(self.service.summary(first)["check"]["total_rows"], 5 * 4 * 12)
 
 
 class HttpTest(ServiceTestCase):
