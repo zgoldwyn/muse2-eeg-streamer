@@ -65,9 +65,8 @@ Median peak-to-peak amplitudes in microvolts:
 | 8 s / rest | 143.52 | 90.08 | 54.93 | 103.75 |
 | 8 s / task | 389.40 | 242.42 | 124.51 | 279.54 |
 
-The first 2 s TP9 window reports 107.4153 µV peak-to-peak. Namit's files were
-used as supplied, preserving IDs, times, participants, sample rates, and weak
-targets. No rescaling was applied by the summary script.
+The supplied records preserve IDs, times, participants, sample rates, and
+weak targets throughout the summary.
 
 The largest peak-to-peak value is 1,940.40 µV on TP9 in
 `sub-08_task-BT_acq-Muse2_eeg:w4:0024` (and its overlapping 8 s counterpart

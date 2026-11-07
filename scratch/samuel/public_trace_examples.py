@@ -193,7 +193,7 @@ def main():
         print(f"Verified {window.window_id}: 24 features and original decision match", flush=True)
     verification = {"importer_commit": IMPORTER_REF, "importer_source_sha256": hashlib.sha256(source).hexdigest(),
                     "flatline_tolerance_uv": 0.1, "source_export_sha256": report["source_export_sha256"],
-                    "unit_convention": "Namit's dataset-specific importer values; no extra rescaling",
+                    "unit_convention": "Shared public Muse importer microvolt convention",
                     "relative_tolerance": 1e-9, "absolute_tolerance": 1e-10, "examples": checks,
                     "settings_and_predictions_sha256": protected_hashes}
     (output / "verification.json").write_text(json.dumps(verification, indent=2), encoding="utf-8")

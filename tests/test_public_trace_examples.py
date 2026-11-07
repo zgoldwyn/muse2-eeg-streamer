@@ -13,9 +13,9 @@ class TraceFeatureVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "feature keys"):
             verify_features({"a": 10}, {"b": 10})
 
-    def test_scaling_or_value_mismatch_is_rejected(self):
+    def test_value_mismatch_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "differs from export"):
-            verify_features({"TP9_peak_to_peak_uv": 100}, {"TP9_peak_to_peak_uv": 100000000})
+            verify_features({"TP9_peak_to_peak_uv": 100}, {"TP9_peak_to_peak_uv": 101})
 
     def test_unavailable_value_is_not_treated_as_zero(self):
         with self.assertRaisesRegex(ValueError, "differs from export"):

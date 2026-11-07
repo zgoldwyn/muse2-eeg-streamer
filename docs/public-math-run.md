@@ -32,8 +32,8 @@ saved JSON record this provenance.
 Flag if either threshold is exceeded on any channel. All triggers are retained.
 Missing required features or explicit invalidity cause exclusion, not a clean
 decision. The export contains only Namit's accepted windows; it does not
-include counts for his earlier boundary exclusions. No additional feature
-criterion or amplitude rescaling was introduced.
+include counts for his earlier boundary exclusions. The rule uses the two
+configured features directly.
 
 ## Run and output
 
