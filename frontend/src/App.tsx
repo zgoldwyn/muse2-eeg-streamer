@@ -1,9 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
+
 import protocol from "./protocol.json"
+
 import sessionMetadataFixture from "./session-metadata.json"
+
+import LiveMode from "./live/LiveMode"
+import { formatMarkerTime } from "./live/logic"
 
 type SessionMetadata = {
   nominal_sample_rate_hz: number
+
   samples_per_packet: number
 }
 
@@ -11,73 +17,109 @@ const syntheticSessionMetadata: SessionMetadata = sessionMetadataFixture
 
 type HeadsetConnectionStatus = {
   label: string
+
   isGood: boolean
 }
 
 type ChannelConnectionStatus = {
   name: string
+
   signalQuality: string
+
   samples: string
 }
 
 const headsetConnection: HeadsetConnectionStatus = {
   label: "Not connected to Muse",
+
   isGood: false,
 }
 
 const channels: ChannelConnectionStatus[] = [
   { name: "TP9", signalQuality: "No signal", samples: "N/A" },
+
   { name: "AF7", signalQuality: "No signal", samples: "N/A" },
+
   { name: "AF8", signalQuality: "No signal", samples: "N/A" },
+
   { name: "TP10", signalQuality: "No signal", samples: "N/A" },
 ]
 
 const protocolPhases = protocol.phases
+
 const phases = protocolPhases.map((phase) => phase.displayName)
 
 const markerTypes = [
   {
     name: "Introduction",
+
     color: "#2563eb",
+
     background: "#eff6ff",
+
     border: "#bfdbfe",
   },
+
   {
     name: "Phase boundary",
+
     color: "#7c3aed",
+
     background: "#f5f3ff",
+
     border: "#ddd6fe",
   },
+
   {
     name: "Prompt",
+
     color: "#16a34a",
+
     background: "#f0fdf4",
+
     border: "#bbf7d0",
   },
+
   {
     name: "Observed event",
+
     color: "#eab308",
+
     background: "#fefce8",
+
     border: "#fde047",
   },
+
   {
     name: "Recording control",
+
     color: "#dc2626",
+
     background: "#fef2f2",
+
     border: "#fecaca",
   },
 ]
 
 type Marker = {
   event_id: string
+
   session_id: string
+
   elapsed_s: number
+
   event_type: "phase_started" | "prompt_shown" | "observer_marker" | "headset_adjustment" | "operator_note" | "marker_correction" | "recording_paused" | "recording_resumed" | "contact_quality_unverified"
+
   label: string
+
   source: "protocol" | "operator"
+
   category: string
+
   color: string
+
   event_code?: string
+
   corrects_event_id?: string
 }
 
@@ -85,24 +127,37 @@ type ObservationKind = "blink" | "facial-muscle" | "head-movement" | "headset-ad
 
 const observationActions = [
   { kind: "blink", key: "a", keyLabel: "A", label: "Observed blink" },
+
   {
     kind: "facial-muscle",
+
     key: "s",
+
     keyLabel: "S",
+
     label: "Observed jaw / facial muscle",
   },
+
   {
     kind: "head-movement",
+
     key: "d",
+
     keyLabel: "D",
+
     label: "Observed head movement",
   },
+
   {
     kind: "headset-adjustment",
+
     key: "f",
+
     keyLabel: "F",
+
     label: "Headset adjustment",
   },
+
   { kind: "operator-note", key: "g", keyLabel: "G", label: "Operator note" },
 ] as const
 
@@ -112,10 +167,15 @@ function createEventId() {
 
 function formatTime(seconds: number) {
   const hours = Math.floor(seconds / 3600)
+
   const minutes = Math.floor((seconds % 3600) / 60)
+
   const remainingSeconds = seconds % 60
+
   return [hours, minutes, remainingSeconds]
+
     .map((value) => value.toString().padStart(2, "0"))
+
     .join(":")
 }
 
@@ -123,20 +183,17 @@ function formatPhaseTime(seconds: number) {
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`
 }
 
-function formatMarkerTime(seconds: number) {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const remainingSeconds = (seconds % 60).toFixed(2).padStart(5, "0")
-  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds}`
-}
-
 function ChannelCard({
   name,
+
   signalQuality,
+
   samples,
 }: {
   name: string
+
   signalQuality: string
+
   samples: string
 }) {
   const hasGoodSignal = signalQuality === "Good"
@@ -175,7 +232,9 @@ function ChannelCard({
 
 type SessionDetails = {
   sessionId: string
+
   participantName: string
+
   visit: string
 }
 
@@ -183,19 +242,28 @@ type SessionOutcome = "Completed" | "Incomplete" | "Aborted"
 
 type SessionRecord = SessionMetadata & {
   elapsed: number
+
   markers: Marker[]
+
   headsetConnection: HeadsetConnectionStatus
+
   channelConnections: ChannelConnectionStatus[]
+
   phaseTimes: number[]
+
   completedPhases: number
+
   currentPhase: number
+
   operatorNotes: string
+
   outcome: SessionOutcome
 }
 
 function DesktopCanvas({ children }: { children: React.ReactNode }) {
   const [viewport, setViewport] = useState(() => ({
     width: window.innerWidth,
+
     height: window.innerHeight,
   }))
 
@@ -204,12 +272,16 @@ function DesktopCanvas({ children }: { children: React.ReactNode }) {
       setViewport({ width: window.innerWidth, height: window.innerHeight })
 
     updateViewport()
+
     window.addEventListener("resize", updateViewport)
+
     return () => window.removeEventListener("resize", updateViewport)
   }, [])
 
   const scale = Math.min(viewport.width / 1440, viewport.height / 900, 1)
+
   const left = Math.max(0, (viewport.width - 1440 * scale) / 2)
+
   const top = Math.max(0, (viewport.height - 900 * scale) / 2)
 
   return (
@@ -226,83 +298,117 @@ function DesktopCanvas({ children }: { children: React.ReactNode }) {
 
 function SetupScreen({
   details,
+
   setDetails,
+
   notes,
+
   setNotes,
+
+  onBack,
+
   onBegin,
 }: {
   details: SessionDetails
+
   setDetails: (details: SessionDetails) => void
+
   notes: string
+
   setNotes: (notes: string) => void
+
+  onBack: () => void
+
   onBegin: (contactQualityUnverified: boolean) => void
 }) {
   const fields = [
     ["Session ID", "sessionId"],
+
     ["Participant Name", "participantName"],
+
     ["Visit / Session", "visit"],
   ] as const
-  const [missingFields, setMissingFields] = useState<
-    (keyof SessionDetails)[]
-  >([])
+
+  const [missingFields, setMissingFields] =
+    useState<Array<keyof SessionDetails>>([])
+
   const [setupErrors, setSetupErrors] = useState<string[]>([])
+
   const [isWarningDialogOpen, setIsWarningDialogOpen] = useState(false)
+
   const isErrorDialogOpen = setupErrors.length > 0
+
   const isDialogOpen = isErrorDialogOpen || isWarningDialogOpen
 
   const getMissingRequiredFields = () =>
     fields
+
       .filter(([, key]) => !details[key].trim())
+
       .map(([, key]) => key)
 
-  const getMissingFieldLabels = (missing: (keyof SessionDetails)[]) =>
+  const getMissingFieldLabels = (missing: Array<keyof SessionDetails>) =>
     fields
+
       .filter(([, key]) => missing.includes(key))
+
       .map(([label]) => label)
 
   const beginSession = () => {
     const missing = getMissingRequiredFields()
+
     const missingFieldLabels = getMissingFieldLabels(missing)
+
     const channelsWithoutGoodSignal = channels.filter(
       (channel) => channel.signalQuality !== "Good",
     )
+
     const errors = [
       ...(missingFieldLabels.length > 0
         ? [`Fill out the required fields: ${missingFieldLabels.join(", ")}.`]
         : []),
+
       ...(!headsetConnection.isGood
         ? [`Headset connection is not ready: ${headsetConnection.label}.`]
         : []),
+
       ...(channelsWithoutGoodSignal.length > 0
         ? [
             `Channel signal quality must be Good: ${channelsWithoutGoodSignal
-              .map(
-                (channel) => `${channel.name} (${channel.signalQuality})`,
-              )
+
+              .map((channel) => `${channel.name} (${channel.signalQuality})`)
+
               .join(", ")}.`,
           ]
         : []),
     ]
 
     setMissingFields(missing)
+
     if (errors.length > 0) {
       setSetupErrors(errors)
+
       return
     }
+
     onBegin(false)
   }
 
   const beginSessionWithUnverifiedContact = () => {
     const missing = getMissingRequiredFields()
+
     const missingFieldLabels = getMissingFieldLabels(missing)
 
     setMissingFields(missing)
+
     if (missingFieldLabels.length > 0) {
       setSetupErrors([
         `Fill out the required fields: ${missingFieldLabels.join(", ")}.`,
       ])
+
       return
     }
+
     setIsWarningDialogOpen(true)
   }
 
@@ -312,7 +418,14 @@ function SetupScreen({
         className="h-full bg-[#f9fafb] px-20 py-6"
         aria-hidden={isDialogOpen}
       >
-        <header className="mx-auto flex max-w-[1040px] flex-col items-center gap-1.5 text-center">
+        <header className="relative mx-auto flex max-w-[1040px] flex-col items-center gap-1.5 text-center">
+          <button
+            type="button"
+            className="absolute left-0 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#2563eb] underline"
+            onClick={onBack}
+          >
+            ← Back to EEG Operator Dashboard
+          </button>
           <h1 className="font-['Inter:Bold'] text-[28px] leading-normal font-bold text-[#111827]">
             Session Setup
           </h1>
@@ -338,6 +451,7 @@ function SetupScreen({
                   value={details[key]}
                   onChange={(event) => {
                     setDetails({ ...details, [key]: event.target.value })
+
                     if (event.target.value.trim()) {
                       setMissingFields((current) =>
                         current.filter((field) => field !== key),
@@ -372,9 +486,7 @@ function SetupScreen({
               />
               <span
                 className={`font-['Inter:Semi_Bold'] text-sm font-semibold ${
-                  headsetConnection.isGood
-                    ? "text-[#065f46]"
-                    : "text-[#b91c1c]"
+                  headsetConnection.isGood ? "text-[#065f46]" : "text-[#b91c1c]"
                 }`}
               >
                 {headsetConnection.label}
@@ -422,7 +534,12 @@ function SetupScreen({
               className="primary-button"
               onClick={beginSession}
             >
-              <img src="/assets/399bb.svg" alt="" width="16" height="16" />
+              <img
+                src="/assets/399bb%20(1).svg"
+                alt=""
+                width="16"
+                height="16"
+              />
               Begin Session
             </button>
             <button
@@ -507,6 +624,7 @@ function SetupScreen({
                 className="rounded-lg bg-[#2563eb] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1d4ed8]"
                 onClick={() => {
                   setIsWarningDialogOpen(false)
+
                   onBegin(true)
                 }}
               >
@@ -529,21 +647,53 @@ function SetupScreen({
 
 function MarkerPanel({
   markers,
+
   onCorrect,
 }: {
   markers: Marker[]
+
   onCorrect: (eventId: string) => void
 }) {
   const correctedEventIds = new Set(
     markers
+
       .map((marker) => marker.corrects_event_id)
+
       .filter((eventId): eventId is string => Boolean(eventId)),
   )
+
+  const markerListRef = useRef<HTMLDivElement>(null)
+
+  const markerContentRef = useRef<HTMLDivElement>(null)
+
+  const latestMarkerId = markers.at(-1)?.event_id
+
+  useEffect(() => {
+    const markerList = markerListRef.current
+
+    if (markerList) markerList.scrollTop = markerList.scrollHeight
+  }, [markers.length, latestMarkerId])
+
+  useEffect(() => {
+    const markerList = markerListRef.current
+
+    const markerContent = markerContentRef.current
+
+    if (!markerList || !markerContent) return
+
+    const resizeObserver = new ResizeObserver(() => {
+      markerList.scrollTop = markerList.scrollHeight
+    })
+
+    resizeObserver.observe(markerContent)
+
+    return () => resizeObserver.disconnect()
+  }, [])
 
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-[#e2e8f0] bg-white">
       <div className="flex items-center gap-2 border-b border-[#e2e8f0] px-4 py-4">
-        <img src="/assets/20de1.svg" alt="" width="16" height="16" />
+        <img src="/assets/20de1%20(1).svg" alt="" width="16" height="16" />
         <h2 className="font-['Inter:Semi_Bold'] text-sm font-semibold text-[#1e293b]">
           Markers
         </h2>
@@ -556,56 +706,58 @@ function MarkerPanel({
         <span>Timestamp</span>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {markers.length === 0 && (
-            <p className="border-b border-[#e2e8f0] px-4 py-6 text-center text-xs text-[#94a3b8]">
-              No markers added
-            </p>
-          )}
-          {markers.map((marker, index) => (
-            <div
-              key={marker.event_id}
-              className={`flex min-h-10 items-center justify-between gap-2 border-b border-[#e2e8f0] px-4 py-2.5 text-xs ${
-                index % 2 === 0 ? "bg-[#fafafa]" : ""
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-1.5 text-[#334155]">
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: marker.color }}
-                />
-                <span className="min-w-0">
-                  <span className="line-clamp-2">{marker.label}</span>
+        <div ref={markerListRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={markerContentRef}>
+            {markers.length === 0 && (
+              <p className="border-b border-[#e2e8f0] px-4 py-6 text-center text-xs text-[#94a3b8]">
+                No markers added
+              </p>
+            )}
+            {markers.map((marker, index) => (
+              <div
+                key={marker.event_id}
+                className={`flex min-h-10 items-center justify-between gap-2 border-b border-[#e2e8f0] px-4 py-2.5 text-xs ${
+                  index % 2 === 0 ? "bg-[#fafafa]" : ""
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-1.5 text-[#334155]">
                   <span
-                    className={`mt-0.5 block text-[8px] font-semibold uppercase ${
-                      marker.source === "protocol"
-                        ? "text-[#16a34a]"
-                        : "text-[#dc2626]"
-                    }`}
-                  >
-                    {marker.event_type.replace(/_/g, " ")}
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: marker.color }}
+                  />
+                  <span className="min-w-0">
+                    <span className="line-clamp-2">{marker.label}</span>
+                    <span
+                      className={`mt-0.5 block text-[8px] font-semibold uppercase ${
+                        marker.source === "protocol"
+                          ? "text-[#16a34a]"
+                          : "text-[#dc2626]"
+                      }`}
+                    >
+                      {marker.event_type.replace(/_/g, " ")}
+                    </span>
                   </span>
                 </span>
-              </span>
-              <span className="flex shrink-0 flex-col items-end gap-1 font-['Inter:Medium'] text-[#64748b]">
-                {formatMarkerTime(marker.elapsed_s)}
-                {marker.source === "operator" &&
-                  marker.event_type !== "marker_correction" &&
-                  marker.event_type !== "recording_paused" &&
-                  marker.event_type !== "recording_resumed" &&
-                  marker.event_type !== "contact_quality_unverified" &&
-                  !correctedEventIds.has(marker.event_id) && (
-                    <button
-                      type="button"
-                      className="text-[9px] font-semibold text-[#b91c1c] underline"
-                      onClick={() => onCorrect(marker.event_id)}
-                    >
-                      Correct
-                    </button>
-                  )}
-              </span>
-            </div>
-          ))}
+                <span className="flex shrink-0 flex-col items-end gap-1 font-['Inter:Medium'] text-[#64748b]">
+                  {formatMarkerTime(marker.elapsed_s)}
+                  {marker.source === "operator" &&
+                    marker.event_type !== "marker_correction" &&
+                    marker.event_type !== "recording_paused" &&
+                    marker.event_type !== "recording_resumed" &&
+                    marker.event_type !== "contact_quality_unverified" &&
+                    !correctedEventIds.has(marker.event_id) && (
+                      <button
+                        type="button"
+                        className="text-[9px] font-semibold text-[#b91c1c] underline"
+                        onClick={() => onCorrect(marker.event_id)}
+                      >
+                        Correct
+                      </button>
+                    )}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="shrink-0 space-y-1.5 border-t border-[#e2e8f0] bg-white p-4 text-[11px] text-[#64748b]">
           <h3 className="text-[10px] font-semibold uppercase text-[#94a3b8]">
@@ -628,9 +780,11 @@ function MarkerPanel({
 
 function StatusStrip({
   headset,
+
   channelConnections,
 }: {
   headset: HeadsetConnectionStatus
+
   channelConnections: ChannelConnectionStatus[]
 }) {
   return (
@@ -653,6 +807,7 @@ function StatusStrip({
       </span>
       {channelConnections.map((channel) => {
         const hasGoodSignal = channel.signalQuality === "Good"
+
         return (
           <span
             key={channel.name}
@@ -680,21 +835,35 @@ function StatusStrip({
 
 function RecordingControls({
   elapsed,
+
   protocolElapsed,
+
   isRunning,
+
   hasStarted,
+
   onPlay,
+
   onPause,
+
   onStop,
+
   onAbort,
 }: {
   elapsed: number
+
   protocolElapsed: number
+
   isRunning: boolean
+
   hasStarted: boolean
+
   onPlay: () => void
+
   onPause: () => void
+
   onStop: () => void
+
   onAbort: () => void
 }) {
   return (
@@ -727,7 +896,9 @@ function RecordingControls({
               {(
                 protocolElapsed *
                 syntheticSessionMetadata.nominal_sample_rate_hz
-              ).toLocaleString()}
+              )
+
+                .toLocaleString()}
             </b>
           </p>
           <p>
@@ -745,7 +916,7 @@ function RecordingControls({
           onClick={onPlay}
           disabled={isRunning}
         >
-          <img src="/assets/399bb.svg" alt="" width="16" height="16" />
+          <img src="/assets/399bb%20(1).svg" alt="" width="16" height="16" />
           Play
         </button>
         <button
@@ -783,15 +954,23 @@ function RecordingControls({
 
 function PhaseControl({
   currentPhase,
+
   phaseTimes,
+
   hasStarted,
+
   onPrevious,
+
   onNext,
 }: {
   currentPhase: number
+
   phaseTimes: number[]
+
   hasStarted: boolean
+
   onPrevious: () => void
+
   onNext: () => void
 }) {
   const phase = protocolPhases[currentPhase]
@@ -825,8 +1004,7 @@ function PhaseControl({
             {formatPhaseTime(phaseTimes[currentPhase])}
           </b>
           <span className="ml-2 text-[#7c3aed]">
-            Target: {phase.suggestedDuration.proposedParticipantProtocolSeconds}
-            s
+            Target: {phase.suggestedDuration.demoParticipantProtocolSeconds}s
           </span>
         </p>
       </div>
@@ -889,19 +1067,25 @@ function PhaseControl({
 
 function ObservationControls({
   hasStarted,
+
   onEvent,
+
   onCorrectLast,
+
   canCorrect,
 }: {
   hasStarted: boolean
+
   onEvent: (kind: ObservationKind) => void
+
   onCorrectLast: () => void
+
   canCorrect: boolean
 }) {
   return (
     <section className="dashboard-card">
       <div className="flex items-center gap-2">
-        <img src="/assets/20de1.svg" alt="" width="16" height="16" />
+        <img src="/assets/20de1%20(1).svg" alt="" width="16" height="16" />
         <h2 className="text-sm font-semibold text-[#1e293b]">
           Observed Events
         </h2>
@@ -947,48 +1131,71 @@ function ObservationControls({
 
 function Dashboard({
   details,
+
   contactQualityUnverified,
+
   onFinish,
 }: {
   details: SessionDetails
+
   contactQualityUnverified: boolean
+
   onFinish: (record: SessionRecord) => void
 }) {
   const [elapsed, setElapsed] = useState(0)
+
   const [isRunning, setIsRunning] = useState(false)
+
   const [hasStarted, setHasStarted] = useState(false)
+
   const [currentPhase, setCurrentPhase] = useState(0)
+
   const [phaseTimes, setPhaseTimes] = useState(() => phases.map(() => 0))
+
   const [operatorNotes, setOperatorNotes] = useState("")
+
   const [markers, setMarkers] = useState<Marker[]>(() =>
     contactQualityUnverified
       ? [
           {
             event_id: createEventId(),
+
             session_id: details.sessionId || "unspecified-session",
+
             elapsed_s: 0,
+
             event_type: "contact_quality_unverified",
+
             label: "Session started with contact quality unverified",
+
             source: "operator",
+
             category: markerTypes[4].name,
+
             color: markerTypes[4].color,
           },
         ]
       : [],
   )
+
   const hasFinished = useRef(false)
+
   const sessionStartedAt = useRef<number | null>(null)
+
   const protocolElapsed = phaseTimes.reduce((total, time) => total + time, 0)
 
   const getPreciseElapsedSeconds = () => {
     if (sessionStartedAt.current === null) return 0
+
     return Math.round((performance.now() - sessionStartedAt.current) / 10) / 100
   }
 
   useEffect(() => {
     if (!hasStarted) return
+
     const interval = window.setInterval(() => {
       setElapsed((value) => value + 1)
+
       if (isRunning) {
         setPhaseTimes((times) =>
           times.map((time, index) =>
@@ -997,24 +1204,37 @@ function Dashboard({
         )
       }
     }, 1000)
+
     return () => window.clearInterval(interval)
   }, [hasStarted, isRunning, currentPhase])
 
   const recordPhaseTransition = (phaseIndex: number) => {
     const phase = protocolPhases[phaseIndex]
+
     const isPrompt = phase.phaseId.includes("prompt")
+
     const markerType = isPrompt ? markerTypes[2] : markerTypes[1]
+
     setMarkers((currentMarkers) => [
       ...currentMarkers,
+
       {
         event_id: createEventId(),
+
         session_id: details.sessionId || "unspecified-session",
+
         elapsed_s: getPreciseElapsedSeconds(),
+
         event_type: isPrompt ? "prompt_shown" : "phase_started",
+
         label: `${phase.eventCode}: ${phase.displayName}`,
+
         source: "protocol",
+
         category: markerType.name,
+
         color: markerType.color,
+
         event_code: phase.eventCode,
       },
     ])
@@ -1022,11 +1242,17 @@ function Dashboard({
 
   const addObservation = (kind: ObservationKind) => {
     if (!hasStarted) return
+
     const action = observationActions.find((item) => item.kind === kind)
+
     if (!action) return
+
     const isHeadsetAdjustment = kind === "headset-adjustment"
+
     const isOperatorNote = kind === "operator-note"
+
     const markerType = markerTypes[3]
+
     const noteLabel =
       isOperatorNote && operatorNotes.trim()
         ? `Operator note: ${operatorNotes.trim()}`
@@ -1034,18 +1260,26 @@ function Dashboard({
 
     setMarkers((currentMarkers) => [
       ...currentMarkers,
+
       {
         event_id: createEventId(),
+
         session_id: details.sessionId || "unspecified-session",
+
         elapsed_s: getPreciseElapsedSeconds(),
+
         event_type: isHeadsetAdjustment
           ? "headset_adjustment"
           : isOperatorNote
             ? "operator_note"
             : "observer_marker",
+
         label: noteLabel,
+
         source: "operator",
+
         category: markerType.name,
+
         color: markerType.color,
       },
     ])
@@ -1058,9 +1292,11 @@ function Dashboard({
       const originalEvent = currentMarkers.find(
         (marker) => marker.event_id === eventId,
       )
+
       if (!originalEvent || originalEvent.source !== "operator") {
         return currentMarkers
       }
+
       if (
         currentMarkers.some((marker) => marker.corrects_event_id === eventId)
       ) {
@@ -1069,15 +1305,24 @@ function Dashboard({
 
       return [
         ...currentMarkers,
+
         {
           event_id: createEventId(),
+
           session_id: details.sessionId || "unspecified-session",
+
           elapsed_s: correctionElapsed,
+
           event_type: "marker_correction",
+
           label: `Correction: accidental marker — ${originalEvent.label}`,
+
           source: "operator",
+
           category: "Observed event",
+
           color: "#64748b",
+
           corrects_event_id: originalEvent.event_id,
         },
       ]
@@ -1086,9 +1331,12 @@ function Dashboard({
 
   const correctedEventIds = new Set(
     markers
+
       .map((marker) => marker.corrects_event_id)
+
       .filter((eventId): eventId is string => Boolean(eventId)),
   )
+
   const correctableEvents = markers.filter(
     (marker) =>
       marker.source === "operator" &&
@@ -1098,24 +1346,35 @@ function Dashboard({
       marker.event_type !== "contact_quality_unverified" &&
       !correctedEventIds.has(marker.event_id),
   )
+
   const lastCorrectableEvent =
     correctableEvents[correctableEvents.length - 1] ?? null
 
   const recordRecordingControl = (
     eventType: "recording_paused" | "recording_resumed",
+
     label: string,
   ) => {
     const markerType = markerTypes[4]
+
     setMarkers((currentMarkers) => [
       ...currentMarkers,
+
       {
         event_id: createEventId(),
+
         session_id: details.sessionId || "unspecified-session",
+
         elapsed_s: getPreciseElapsedSeconds(),
+
         event_type: eventType,
+
         label,
+
         source: "operator",
+
         category: markerType.name,
+
         color: markerType.color,
       },
     ])
@@ -1124,41 +1383,60 @@ function Dashboard({
   const play = () => {
     if (!hasStarted) {
       sessionStartedAt.current = performance.now()
+
       recordPhaseTransition(0)
     } else {
       recordRecordingControl("recording_resumed", "Recording resumed")
     }
+
     setHasStarted(true)
+
     setIsRunning(true)
   }
 
   const pause = () => {
     recordRecordingControl("recording_paused", "Recording paused")
+
     setIsRunning(false)
   }
 
   const transitionToPhase = (phaseIndex: number) => {
     if (phaseIndex === currentPhase) return
+
     setCurrentPhase(phaseIndex)
+
     recordPhaseTransition(phaseIndex)
   }
 
   const finishSession = (outcome: SessionOutcome) => {
     if (hasFinished.current) return
+
     hasFinished.current = true
+
     setIsRunning(false)
+
     const completedPhases =
       outcome === "Completed" ? phases.length : hasStarted ? currentPhase : 0
+
     onFinish({
       ...syntheticSessionMetadata,
+
       elapsed,
+
       markers,
+
       headsetConnection: { ...headsetConnection },
+
       channelConnections: channels.map((channel) => ({ ...channel })),
+
       phaseTimes,
+
       completedPhases,
+
       currentPhase,
+
       operatorNotes,
+
       outcome,
     })
   }
@@ -1166,7 +1444,9 @@ function Dashboard({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || !hasStarted) return
+
       const target = event.target
+
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
@@ -1177,25 +1457,32 @@ function Dashboard({
       }
 
       const key = event.key.toLowerCase()
+
       const action = observationActions.find((item) => item.key === key)
+
       if (action) {
         event.preventDefault()
+
         addObservation(action.kind)
       } else if (key === "c" && lastCorrectableEvent) {
         event.preventDefault()
+
         correctEvent(lastCorrectableEvent.event_id)
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
+
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [elapsed, hasStarted, lastCorrectableEvent, markers, operatorNotes])
 
   useEffect(() => {
     if (!isRunning || hasFinished.current) return
+
     const phaseDuration =
       protocolPhases[currentPhase].suggestedDuration
-        .proposedParticipantProtocolSeconds
+        .demoParticipantProtocolSeconds
+
     if (phaseTimes[currentPhase] < phaseDuration) return
 
     if (currentPhase < phases.length - 1) {
@@ -1210,7 +1497,9 @@ function Dashboard({
       <header className="flex h-[50px] flex-nowrap items-center gap-x-6 border-b border-[#e2e8f0] bg-white px-6 text-xs">
         {[
           ["Session ID:", details.sessionId],
+
           ["Participant:", details.participantName],
+
           ["Visit / Session:", details.visit],
         ].map(([label, value]) => (
           <div key={label} className="flex gap-1.5">
@@ -1220,8 +1509,8 @@ function Dashboard({
             </strong>
           </div>
         ))}
-        <span className="rounded bg-[#f1f5f9] px-2.5 py-1 font-['Inter:Italic'] text-[11px] italic text-[#94a3b8]">
-          demonstration mode&nbsp;&nbsp;&nbsp;
+        <span className="rounded bg-[#7c3aed] px-2.5 py-1 font-['Inter:Bold'] text-[11px] font-bold uppercase text-white">
+          Simulated demo · no EEG recorded
         </span>
       </header>
 
@@ -1291,26 +1580,40 @@ function Dashboard({
 
 const phaseTimelineColors = [
   "#dbeafe",
+
   "#fef3c7",
+
   "#ede9fe",
+
   "#dcfce7",
+
   "#f1f5f9",
+
   "#ede9fe",
+
   "#f1f5f9",
+
   "#fff7ed",
+
   "#f1f5f9",
+
   "#f0fdf4",
 ]
 
 function OutcomeBadge({ outcome }: { outcome: SessionOutcome }) {
   const styles = {
     Completed: "border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]",
+
     Incomplete: "border-[#fde047] bg-[#fef9c3] text-[#92400e]",
+
     Aborted: "border-[#fecaca] bg-[#fef2f2] text-[#b91c1c]",
   }
+
   const dots = {
     Completed: "#16a34a",
+
     Incomplete: "#d97706",
+
     Aborted: "#dc2626",
   }
 
@@ -1330,13 +1633,14 @@ function OutcomeBadge({ outcome }: { outcome: SessionOutcome }) {
 function ReviewSidebar({ record }: { record: SessionRecord }) {
   const protocolElapsed = record.phaseTimes.reduce(
     (total, time) => total + time,
+
     0,
   )
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-[#e2e8f0] bg-white">
       <div className="flex items-center gap-2 border-b border-[#e2e8f0] px-4 py-3.5">
-        <img src="/assets/20de1.svg" alt="" width="16" height="16" />
+        <img src="/assets/20de1%20(1).svg" alt="" width="16" height="16" />
         <h2 className="text-sm font-semibold text-[#1e293b]">Markers</h2>
         <span className="rounded-full bg-[#2563eb] px-1.5 py-0.5 text-[10px] font-bold text-white">
           {record.markers.length}
@@ -1378,7 +1682,7 @@ function ReviewSidebar({ record }: { record: SessionRecord }) {
                 </span>
               </span>
               <span className="shrink-0 font-['Inter:Medium'] text-[#64748b]">
-                  {formatMarkerTime(marker.elapsed_s)}
+                {formatMarkerTime(marker.elapsed_s)}
               </span>
             </div>
           ))
@@ -1436,6 +1740,7 @@ function ReviewSidebar({ record }: { record: SessionRecord }) {
 
 function SessionOverview({ record }: { record: SessionRecord }) {
   const total = Math.max(record.elapsed, 1)
+
   return (
     <section className="rounded-[10px] border border-[#e2e8f0] bg-white px-4 py-2.5">
       <div className="mb-2 flex items-center gap-2">
@@ -1460,6 +1765,7 @@ function SessionOverview({ record }: { record: SessionRecord }) {
             className="h-full min-w-[2px] opacity-70"
             style={{
               width: `${Math.max((time / total) * 100, index < record.completedPhases ? 2 : 0)}%`,
+
               backgroundColor: phaseTimelineColors[index],
             }}
           />
@@ -1470,6 +1776,7 @@ function SessionOverview({ record }: { record: SessionRecord }) {
             className="absolute inset-y-0 w-px opacity-70"
             style={{
               left: `${(marker.elapsed_s / total) * 100}%`,
+
               backgroundColor: marker.color,
             }}
           />
@@ -1478,14 +1785,23 @@ function SessionOverview({ record }: { record: SessionRecord }) {
       <div className="mt-1 flex gap-1 text-[8px]">
         {[
           "1-Intro",
+
           "2-Setup",
+
           "3-Baseline",
+
           "4-Eye activity",
+
           "5-Quiet",
+
           "6-Facial muscle",
+
           "7-Quiet",
+
           "8-Head movement",
+
           "9-Quiet",
+
           "10-Ending",
         ].map((label, index) => (
           <span
@@ -1503,47 +1819,70 @@ function SessionOverview({ record }: { record: SessionRecord }) {
 
 function ReviewScreen({
   details,
+
   setupNotes,
+
   record,
+
   onStartAnotherSession,
+
+  onReturnToDashboard,
 }: {
   details: SessionDetails
+
   setupNotes: string
+
   record: SessionRecord
+
   onStartAnotherSession: () => void
+
+  onReturnToDashboard: () => void
 }) {
   const [playbackPosition, setPlaybackPosition] = useState(0)
+
   const [isPlaying, setIsPlaying] = useState(false)
+
   const outcomeStyles =
     record.outcome === "Completed"
       ? "border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]"
       : record.outcome === "Incomplete"
         ? "border-[#fde047] bg-[#fef9c3] text-[#92400e]"
         : "border-[#fecaca] bg-[#fef2f2] text-[#b91c1c]"
+
   const noteText = [
     setupNotes && `Setup: ${setupNotes}`,
+
     record.operatorNotes && `Recording: ${record.operatorNotes}`,
   ]
+
     .filter(Boolean)
+
     .join("\n")
+
   const playbackProgress =
     record.elapsed === 0 ? 0 : (playbackPosition / record.elapsed) * 100
+
   const protocolElapsed = record.phaseTimes.reduce(
     (total, time) => total + time,
+
     0,
   )
 
   useEffect(() => {
     if (!isPlaying || record.elapsed === 0) return
+
     const interval = window.setInterval(() => {
       setPlaybackPosition((position) => {
         if (position >= record.elapsed - 1) {
           setIsPlaying(false)
+
           return record.elapsed
         }
+
         return position + 1
       })
     }, 1000)
+
     return () => window.clearInterval(interval)
   }, [isPlaying, record.elapsed])
 
@@ -1556,31 +1895,53 @@ function ReviewScreen({
   const exportMarkers = () => {
     const exportedMarkers = record.markers.map((marker) => ({
       event_id: marker.event_id,
+
       session_id: marker.session_id,
+
       elapsed_s: marker.elapsed_s,
+
       event_type: marker.event_type,
+
       label: marker.label,
+
       source: marker.source,
+
       category: marker.category,
+
       color: marker.color,
+
       event_code: marker.event_code ?? null,
+
       corrects_event_id: marker.corrects_event_id ?? null,
     }))
+
     const fileContents = JSON.stringify(exportedMarkers, null, 2)
+
     const file = new Blob([fileContents], { type: "application/json" })
+
     const downloadUrl = URL.createObjectURL(file)
+
     const sessionId =
       details.sessionId
+
         .trim()
+
         .replace(/[^a-z0-9_-]+/gi, "-")
+
         .replace(/^-+|-+$/g, "") || "session"
+
     const downloadLink = document.createElement("a")
 
     downloadLink.href = downloadUrl
+
     downloadLink.download = `${sessionId}-markers.json`
+
     document.body.appendChild(downloadLink)
+
     downloadLink.click()
+
     downloadLink.remove()
+
     URL.revokeObjectURL(downloadUrl)
   }
 
@@ -1590,7 +1951,9 @@ function ReviewScreen({
         <div className="flex items-center gap-6">
           {[
             ["Participant:", details.participantName],
+
             ["Session ID:", details.sessionId],
+
             ["Visit:", details.visit],
           ].map(([label, value]) => (
             <div key={label} className="flex gap-1.5">
@@ -1603,7 +1966,16 @@ function ReviewScreen({
             simulated data
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-lg border border-[#cbd5e1] px-3 py-1.5 font-semibold text-[#475569] hover:bg-[#f8fafc]"
+            aria-label="Back to EEG Operator Dashboard"
+            title="Back to EEG Operator Dashboard"
+            onClick={onReturnToDashboard}
+          >
+            ← Dashboard
+          </button>
           <span className="flex items-center gap-1.5 rounded border border-[#bfdbfe] bg-[#eff6ff] px-2.5 py-1 font-bold text-[#1d4ed8]">
             <img src="/assets/d9fac.svg" alt="" width="14" height="14" /> REVIEW
             MODE
@@ -1657,9 +2029,9 @@ function ReviewScreen({
                     <p>
                       Total samples:{" "}
                       <b className="text-[#1e293b]">
-                        {(
-                          protocolElapsed * record.nominal_sample_rate_hz
-                        ).toLocaleString()}
+                        {(protocolElapsed * record.nominal_sample_rate_hz)
+
+                          .toLocaleString()}
                       </b>
                     </p>
                   </div>
@@ -1693,7 +2065,7 @@ function ReviewScreen({
                     disabled={isPlaying || playbackPosition >= record.elapsed}
                   >
                     <img
-                      src="/assets/399bb.svg"
+                      src="/assets/399bb%20(1).svg"
                       alt=""
                       width="14"
                       height="14"
@@ -1834,18 +2206,91 @@ function ReviewScreen({
   )
 }
 
+function ModeChooser({
+  onChoose,
+}: {
+  onChoose: (mode: "demo" | "live") => void
+}) {
+  return (
+    <main className="flex h-full flex-col items-center justify-center gap-6 bg-[#f9fafb]">
+      <h1 className="font-['Inter:Bold'] text-[28px] font-bold text-[#111827]">
+        EEG Operator Dashboard
+      </h1>
+      <div className="grid w-[900px] grid-cols-2 gap-6">
+        <button
+          type="button"
+          className="flex flex-col gap-2 rounded-2xl border-2 border-[#7c3aed] bg-white p-6 text-left shadow-sm hover:bg-[#f5f3ff]"
+          onClick={() => onChoose("demo")}
+        >
+          <span className="w-fit rounded bg-[#7c3aed] px-2 py-0.5 text-[11px] font-bold uppercase text-white">
+            Simulated demo
+          </span>
+          <span className="text-lg font-bold text-[#111827]">
+            Browser walkthrough
+          </span>
+          <span className="text-sm text-[#6b7280]">
+            No headset and no backend. Timers, samples and markers are simulated
+            and nothing is recorded.
+          </span>
+        </button>
+        <button
+          type="button"
+          className="flex flex-col gap-2 rounded-2xl border-2 border-[#16a34a] bg-white p-6 text-left shadow-sm hover:bg-[#f0fdf4]"
+          onClick={() => onChoose("live")}
+        >
+          <span className="w-fit rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold uppercase text-white">
+            Live local recording
+          </span>
+          <span className="text-lg font-bold text-[#111827]">
+            Record with the Muse
+          </span>
+          <span className="text-sm text-[#6b7280]">
+            Needs the recorder backend running on this computer (python3 -m
+            eeg_app.dashboard_service). Saves real EEG sessions.
+          </span>
+        </button>
+      </div>
+    </main>
+  )
+}
+
 function App() {
+  const [mode, setMode] = useState<"choose" | "demo" | "live">("choose")
+
   const [screen, setScreen] = useState<"setup" | "dashboard" | "review">(
     "setup",
   )
+
   const [details, setDetails] = useState<SessionDetails>({
     sessionId: "",
+
     participantName: "",
+
     visit: "",
   })
+
   const [setupNotes, setSetupNotes] = useState("")
+
   const [record, setRecord] = useState<SessionRecord | null>(null)
-  const [contactQualityUnverified, setContactQualityUnverified] = useState(false)
+
+  const [contactQualityUnverified, setContactQualityUnverified] =
+    useState(false)
+
+  if (mode === "choose") {
+    return (
+      <DesktopCanvas>
+        <ModeChooser onChoose={setMode} />
+      </DesktopCanvas>
+    )
+  }
+
+  if (mode === "live") {
+    return (
+      <DesktopCanvas>
+        <LiveMode onExit={() => setMode("choose")} />
+      </DesktopCanvas>
+    )
+  }
 
   return (
     <DesktopCanvas>
@@ -1855,8 +2300,10 @@ function App() {
           setDetails={setDetails}
           notes={setupNotes}
           setNotes={setSetupNotes}
+          onBack={() => setMode("choose")}
           onBegin={(isContactQualityUnverified) => {
             setContactQualityUnverified(isContactQualityUnverified)
+
             setScreen("dashboard")
           }}
         />
@@ -1866,6 +2313,7 @@ function App() {
           contactQualityUnverified={contactQualityUnverified}
           onFinish={(finalRecord) => {
             setRecord(finalRecord)
+
             setScreen("review")
           }}
         />
@@ -1874,15 +2322,22 @@ function App() {
           details={details}
           setupNotes={setupNotes}
           record={record}
+          onReturnToDashboard={() => setMode("choose")}
           onStartAnotherSession={() => {
             setDetails({
               sessionId: "",
+
               participantName: "",
+
               visit: "",
             })
+
             setSetupNotes("")
+
             setRecord(null)
+
             setContactQualityUnverified(false)
+
             setScreen("setup")
           }}
         />
