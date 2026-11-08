@@ -101,6 +101,7 @@ OUTCOMES = ("completed", "incomplete", "aborted")
 
 _SESSION_ID_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"  # no 0/o or 1/l
 _SESSION_ID_PATTERN = re.compile(r"ses-[a-z0-9]{8}")
+_PARTICIPANT_CODE_PATTERN = re.compile(r"[A-Za-z0-9_-]{2,32}")
 _SAMPLE_S = 1 / NOMINAL_SAMPLE_RATE_HZ
 
 
@@ -150,6 +151,8 @@ class ActiveSession:
     session_id: str
     session_dir: Path
     protocol_id: str | None
+    participant_code: str | None
+    visit_number: int | None
     started_at_utc: str
     start_monotonic_ns: int
     data_source: str
@@ -291,13 +294,16 @@ class DashboardService:
         session = self._active
         if session is None:
             return {
-                "state": "idle", "session_id": None, "session_elapsed_s": None,
+                "state": "idle", "session_id": None, "participant_code": None,
+                "visit_number": None, "session_elapsed_s": None,
                 "eeg_elapsed_s": None, "rows_written": None, "samples_per_channel": None,
                 "rejected_packets": None, "last_rejection": None, "stop_reason": None,
             }
         return {
             "state": session.state,
             "session_id": session.session_id,
+            "participant_code": session.participant_code,
+            "visit_number": session.visit_number,
             "session_elapsed_s": round((now - session.start_monotonic_ns) / 1e9, 3),
             "eeg_elapsed_s": session.latest_elapsed_s if session.rows_written else None,
             "rows_written": session.rows_written,
@@ -333,6 +339,15 @@ class DashboardService:
         protocol_id = body.get("protocol_id")
         if protocol_id is not None and not isinstance(protocol_id, str):
             raise ApiError(400, "invalid_request", "protocol_id must be text or null.")
+        participant_code = body.get("participant_code")
+        if participant_code is not None and (
+            not isinstance(participant_code, str)
+            or not _PARTICIPANT_CODE_PATTERN.fullmatch(participant_code)
+        ):
+            raise ApiError(400, "invalid_request", "participant_code must be 2–32 letters, numbers, underscores, or hyphens.")
+        visit_number = body.get("visit_number")
+        if visit_number is not None and (type(visit_number) is not int or visit_number < 1):
+            raise ApiError(400, "invalid_request", "visit_number must be a positive integer.")
         with self._lock:
             if self._active is not None:
                 raise ApiError(
@@ -349,6 +364,8 @@ class DashboardService:
                 session_id=session_id,
                 session_dir=self.sessions_dir / session_id,
                 protocol_id=protocol_id,
+                participant_code=participant_code,
+                visit_number=visit_number,
                 started_at_utc=_utc_now(),
                 start_monotonic_ns=time.monotonic_ns(),
                 data_source=self.data_source,
@@ -623,6 +640,8 @@ class DashboardService:
         _write_json(session.session_dir / SESSION_FILENAME, {
             "session_id": session.session_id,
             "protocol_id": session.protocol_id,
+            "participant_code": session.participant_code,
+            "visit_number": session.visit_number,
             "start_monotonic_ns": session.start_monotonic_ns,
             "first_packet_receipt_ns": session.first_packet_receipt_ns,
             "outcome": outcome,
@@ -678,6 +697,8 @@ class DashboardService:
                 extra = self._session_file(directory)
                 sessions.append({
                     "session_id": directory.name,
+                    "participant_code": extra.get("participant_code"),
+                    "visit_number": extra.get("visit_number"),
                     "started_at_utc": metadata.get("started_at_utc"),
                     "ended_at_utc": extra.get("ended_at_utc"),
                     "outcome": extra.get("outcome"),
@@ -700,6 +721,8 @@ class DashboardService:
         return {
             "session_id": session_id,
             "protocol_id": extra.get("protocol_id"),
+            "participant_code": extra.get("participant_code"),
+            "visit_number": extra.get("visit_number"),
             "started_at_utc": metadata.get("started_at_utc"),
             "ended_at_utc": extra.get("ended_at_utc"),
             "outcome": extra.get("outcome"),

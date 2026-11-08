@@ -45,6 +45,8 @@
         "recorder": {
           "state": "idle",
           "session_id": null,
+          "participant_code": null,
+          "visit_number": null,
           "session_elapsed_s": null,
           "eeg_elapsed_s": null,
           "rows_written": null,
@@ -99,6 +101,8 @@
         "recorder": {
           "state": "idle",
           "session_id": null,
+          "participant_code": null,
+          "visit_number": null,
           "session_elapsed_s": null,
           "eeg_elapsed_s": null,
           "rows_written": null,
@@ -153,6 +157,8 @@
         "recorder": {
           "state": "idle",
           "session_id": null,
+          "participant_code": null,
+          "visit_number": null,
           "session_elapsed_s": null,
           "eeg_elapsed_s": null,
           "rows_written": null,
@@ -207,6 +213,8 @@
         "recorder": {
           "state": "waiting_for_packets",
           "session_id": "ses-k7q2m9xa",
+          "participant_code": "P001",
+          "visit_number": 1,
           "session_elapsed_s": 0.0,
           "eeg_elapsed_s": null,
           "rows_written": 0,
@@ -266,6 +274,8 @@
         "recorder": {
           "state": "recording",
           "session_id": "ses-k7q2m9xa",
+          "participant_code": "P001",
+          "visit_number": 1,
           "session_elapsed_s": 12.203,
           "eeg_elapsed_s": 11.99609375,
           "rows_written": 12276,
@@ -325,6 +335,8 @@
         "recorder": {
           "state": "interrupted",
           "session_id": "ses-lostconn",
+          "participant_code": null,
+          "visit_number": null,
           "session_elapsed_s": 0.0,
           "eeg_elapsed_s": 0.04296875,
           "rows_written": 48,
@@ -545,7 +557,9 @@
       "method": "POST",
       "path": "/api/sessions",
       "body": {
-        "protocol_id": "eeg-artifact-observation-v1"
+        "protocol_id": "eeg-artifact-observation-v1",
+        "participant_code": "P001",
+        "visit_number": 1
       }
     },
     "status": 201,
@@ -557,6 +571,8 @@
       "recorder": {
         "state": "waiting_for_packets",
         "session_id": "ses-k7q2m9xa",
+        "participant_code": "P001",
+        "visit_number": 1,
         "session_elapsed_s": 0.0,
         "eeg_elapsed_s": null,
         "rows_written": 0,
@@ -3723,6 +3739,8 @@
       "sessions": [
         {
           "session_id": "ses-k7q2m9xa",
+          "participant_code": "P001",
+          "visit_number": 1,
           "started_at_utc": "2026-11-04T18:02:11Z",
           "ended_at_utc": "2026-11-04T18:02:11Z",
           "outcome": "incomplete",
@@ -3740,6 +3758,8 @@
     "body": {
       "session_id": "ses-k7q2m9xa",
       "protocol_id": "eeg-artifact-observation-v1",
+      "participant_code": "P001",
+      "visit_number": 1,
       "started_at_utc": "2026-11-04T18:02:11Z",
       "ended_at_utc": "2026-11-04T18:02:11Z",
       "outcome": "incomplete",

@@ -88,6 +88,19 @@ class FixtureTest(unittest.TestCase):
 
 
 class SessionLifecycleTest(ServiceTestCase):
+    def test_participant_code_and_visit_are_saved_for_repeat_sessions(self):
+        session_id = self.service.start_session({
+            "protocol_id": "test", "participant_code": "P001", "visit_number": 2,
+        })["session_id"]
+        status = self.service.status()["recorder"]
+        self.assertEqual(status["participant_code"], "P001")
+        self.assertEqual(status["visit_number"], 2)
+        self.feed(range(2))
+        self.service.end_session(session_id, {"outcome": "incomplete", "reason": "test recording"})
+        self.assertEqual(self.service.summary(session_id)["participant_code"], "P001")
+        self.assertEqual(self.service.summary(session_id)["visit_number"], 2)
+        self.assertEqual(self.service.list_sessions()["sessions"][0]["participant_code"], "P001")
+
     def test_completed_session_is_saved_and_reads_back(self):
         session_id = self.start()
         self.assertEqual(self.service.status()["recorder"]["state"], "waiting_for_packets")
@@ -165,6 +178,18 @@ class OutcomeTest(ServiceTestCase):
 
 
 class GuardTest(ServiceTestCase):
+    def test_rejects_invalid_participant_and_visit_fields(self):
+        for body in (
+            {"participant_code": "Jane Doe"},
+            {"participant_code": "P"},
+            {"visit_number": 0},
+            {"visit_number": True},
+            {"visit_number": "2"},
+        ):
+            with self.subTest(body=body), self.assertRaises(ApiError) as caught:
+                self.service.start_session(body)
+            self.assertEqual(caught.exception.code, "invalid_request")
+
     def test_second_session_is_refused(self):
         session_id = self.start()
         with self.assertRaises(ApiError) as caught:
