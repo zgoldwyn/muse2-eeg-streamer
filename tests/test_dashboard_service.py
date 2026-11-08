@@ -101,6 +101,19 @@ class SessionLifecycleTest(ServiceTestCase):
         self.assertEqual(self.service.summary(session_id)["visit_number"], 2)
         self.assertEqual(self.service.list_sessions()["sessions"][0]["participant_code"], "P001")
 
+    def test_participant_code_and_visit_are_on_disk_before_the_session_ends(self):
+        # If the backend is killed mid-session, the recording must still say whose it is.
+        session_id = self.service.start_session({
+            "protocol_id": "test", "participant_code": "P001", "visit_number": 3,
+        })["session_id"]
+        self.feed(range(2))
+        on_disk = json.loads(
+            (self.service.sessions_dir / session_id / "session.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(on_disk["participant_code"], "P001")
+        self.assertEqual(on_disk["visit_number"], 3)
+        self.assertIsNone(on_disk["outcome"])
+
     def test_completed_session_is_saved_and_reads_back(self):
         session_id = self.start()
         self.assertEqual(self.service.status()["recorder"]["state"], "waiting_for_packets")
