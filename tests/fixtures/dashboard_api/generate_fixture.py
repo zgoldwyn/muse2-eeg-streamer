@@ -134,7 +134,7 @@ def _build(work_dir: Path, clock: FakeClock) -> dict:
     fixture["status"]["idle_streaming"] = entry("GET", "/api/status", 200, service.status())
 
     clock.now_ns = START_NS
-    start_body = {"protocol_id": "eeg-artifact-observation-v1"}
+    start_body = {"protocol_id": "eeg-artifact-observation-v1", "participant_code": "P001", "visit_number": 1}
     fixture["start_session"] = entry("POST", "/api/sessions", 201, service.start_session(start_body), start_body)
     fixture["status"]["waiting_for_packets"] = entry("GET", "/api/status", 200, service.status())
     fixture["errors"]["session_already_active"] = error_entry(

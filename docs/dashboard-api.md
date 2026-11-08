@@ -95,10 +95,12 @@ Poll about once a second. There are fixture examples for `scanner_missing`, `sea
 - `recorder` fields:
   - `state`: `idle`, `waiting_for_packets` (session open, nothing saved yet), `recording`, or `interrupted` (saving stopped by itself; the session stays open until ended)
   - `session_id`
+  - `participant_code` and `visit_number` (anonymous repeat-visit linkage)
   - `session_elapsed_s` (the timer)
   - `eeg_elapsed_s`
   - `rows_written`
   - `samples_per_channel`
+  - `rejected_packets` and `last_rejection` (faulty packets skipped and logged)
   - `stop_reason`
 
 ### `GET /api/pilot-sequence` (fixture `pilot_sequence`)
@@ -115,7 +117,7 @@ The cues come from `eeg_app/pilot_sequence.py`, which the terminal guide (`guide
 
 ### `POST /api/sessions` (fixture `start_session`)
 
-Body: `{ "protocol_id": "eeg-artifact-observation-v1" }`. There is **no participant information**. The backend makes up a pseudonymous `ses-xxxxxxxx` ID that has never been used in the sessions folder.
+Body: `{ "protocol_id": "pilot-sequence-v0", "participant_code": "P001", "visit_number": 1 }`. The live dashboard sends `pilot-sequence-v0` because it runs the pilot-only cue sequence below, not the browser demo's `eeg-artifact-observation-v1` protocol. The participant code is an anonymous study code reused across that person's visits; do not send a name. The visit number is a positive integer. The backend separately creates a unique `ses-xxxxxxxx` session ID. The two study fields are optional at the API level for older terminal tests, but the live dashboard requires them before a pilot recording.
 
 Starting is allowed while the device is `searching`. The recorder then reports `waiting_for_packets` until data arrives.
 
@@ -249,25 +251,37 @@ In a second terminal:
 curl -s http://127.0.0.1:8765/api/status
 ```
 
-Turn the headset on. `device.state` should become `streaming`, with `recent_packets: true` for all four channels. Then start the dashboard (live mode is in Rushil's frontend PR):
+Turn the headset on. `device.state` should become `streaming`, with `recent_packets: true` for all four channels. Then start the dashboard:
 
 ```bash
 cd frontend && npm install && npm run dev
 ```
 
-Open the URL it prints and choose **Live local recording**. Then run three sessions:
+Open **http://localhost:8443** (Vite also prints a Network address, but the backend only accepts requests from `localhost` or `127.0.0.1`). Choose **Live local recording**.
 
-1. **Completed.** Do the fit check and acknowledgment, then Start. Follow the 70 s pilot prompts and press **A** on each observed blink. Press **Finish**. The review should show outcome *Completed*, saving *complete*, similar row counts per channel, and few or no missing packets. Open the review bundle and check that the blink prompts line up with frontal (AF7/AF8) deflections.
-2. **Early stop.** Start, wait about 15 s, then **Stop early** with a reason. The review should show *Incomplete* with saving *complete*.
-3. **Lost connection.** Start, wait about 10 s, then turn the headset off. The dashboard should show *Packets stalled*. Press **Abort** with a reason. The review should show *Aborted*, with the rows recorded before the headset went off.
+On the setup screen, before every session:
+- Enter the **participant code**: an anonymous study code such as `P001`, never a name. Use 2–32 letters, numbers, `_` or `-`. Reuse the same code for every visit by the same person.
+- Enter the **visit number**: 1 for that person's first visit, 2 for the second, and so on.
+- Tick the three visual-fit checks and the contact-quality acknowledgment.
+
+**Start live recording** stays disabled, with the first missing item shown next to it, until all of these are done.
+
+Then run three sessions with a test code (for example `TEST01`, visits 1, 2 and 3):
+
+1. **Completed.** Press **Start live recording**. Follow the seven pilot cues (70 s) and press **A** on each observed blink. After the last cue, press **Stop**, which ends the session as completed. The review should show the participant code and visit, outcome *Completed*, saving *complete*, similar row counts per channel, and few or no missing or rejected packets. Open the review bundle and check that the blink prompts line up with frontal (AF7/AF8) deflections.
+2. **Early stop.** Start, wait about 15 s, press **Stop** and give a reason. The review should show *Incomplete* with saving *complete*.
+3. **Lost connection.** Start, wait about 10 s, then turn the headset off. The dashboard should show *Packets stalled*. Press **Abort Session** and give a reason. The review should show *Aborted*, with the rows recorded before the headset went off.
 
 Afterwards:
 
 ```bash
 ls data/sessions/            # three ses-xxxxxxxx folders
 ls data/sessions/<id>/       # eeg.csv metadata.json packet_receipts.csv events.csv session.json
-git status                   # data/ and recordings/ are ignored, so nothing should show up
+grep -h -E '"(participant_code|visit_number|outcome)"' data/sessions/*/session.json
+git status                   # data/ and recordings/ are ignored
 ```
+
+`make scan` rebuilds `muse2-c/build/muse2_scan`, which is tracked in Git, so `git status` may list it as modified. Don't commit it. Run `git restore muse2-c/build/muse2_scan` when you're done.
 
 If the dashboard says **Recording interrupted**, the reason tells you why:
 - `ScannerLostError`: the scanner exited.

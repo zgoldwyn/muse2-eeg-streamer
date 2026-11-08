@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import protocol from "./protocol.json"
 import sessionMetadataFixture from "./session-metadata.json"
+import LiveMode from "./live/LiveMode"
 
 type SessionMetadata = {
   nominal_sample_rate_hz: number
@@ -231,12 +232,14 @@ function SetupScreen({
   setDetails,
   notes,
   setNotes,
+  onBack,
   onBegin,
 }: {
   details: SessionDetails
   setDetails: (details: SessionDetails) => void
   notes: string
   setNotes: (notes: string) => void
+  onBack: () => void
   onBegin: (acknowledgedAtUtc: string) => void
 }) {
   const fields = [
@@ -283,6 +286,7 @@ function SetupScreen({
         aria-hidden={isDialogOpen}
       >
         <header className="mx-auto flex max-w-[1040px] flex-col items-center gap-1.5 text-center">
+          <button type="button" className="self-start text-xs font-semibold text-[#2563eb] underline" onClick={onBack}>← Change mode</button>
           <h1 className="font-['Inter:Bold'] text-[28px] leading-normal font-bold text-[#111827]">
             Session Setup
           </h1>
@@ -1807,7 +1811,28 @@ function ReviewScreen({
   )
 }
 
+function ModeChooser({ onChoose }: { onChoose: (mode: "demo" | "live") => void }) {
+  return (
+    <main className="flex h-full flex-col items-center justify-center gap-6 bg-[#f9fafb]">
+      <h1 className="text-[28px] font-bold text-[#111827]">EEG Operator Dashboard</h1>
+      <div className="grid w-[900px] grid-cols-2 gap-6">
+        <button type="button" className="flex flex-col gap-2 rounded-2xl border-2 border-[#7c3aed] bg-white p-6 text-left shadow-sm hover:bg-[#f5f3ff]" onClick={() => onChoose("demo")}>
+          <span className="w-fit rounded bg-[#7c3aed] px-2 py-0.5 text-[11px] font-bold uppercase text-white">Simulated demo</span>
+          <span className="text-lg font-bold text-[#111827]">Browser walkthrough</span>
+          <span className="text-sm text-[#6b7280]">No headset and no backend. Timers, samples and markers are simulated and nothing is recorded.</span>
+        </button>
+        <button type="button" className="flex flex-col gap-2 rounded-2xl border-2 border-[#16a34a] bg-white p-6 text-left shadow-sm hover:bg-[#f0fdf4]" onClick={() => onChoose("live")}>
+          <span className="w-fit rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold uppercase text-white">Live local recording</span>
+          <span className="text-lg font-bold text-[#111827]">Record with the Muse</span>
+          <span className="text-sm text-[#6b7280]">Needs the recorder backend running on this computer. Saves real EEG sessions.</span>
+        </button>
+      </div>
+    </main>
+  )
+}
+
 function App() {
+  const [mode, setMode] = useState<"choose" | "demo" | "live">("choose")
   const [screen, setScreen] = useState<"setup" | "dashboard" | "review">(
     "setup",
   )
@@ -1820,10 +1845,18 @@ function App() {
   const [record, setRecord] = useState<SessionRecord | null>(null)
   const [contactAcknowledgedAtUtc, setContactAcknowledgedAtUtc] = useState<string | null>(null)
 
+  if (mode === "choose") {
+    return <DesktopCanvas><ModeChooser onChoose={setMode} /></DesktopCanvas>
+  }
+  if (mode === "live") {
+    return <DesktopCanvas><LiveMode onExit={() => setMode("choose")} /></DesktopCanvas>
+  }
+
   return (
     <DesktopCanvas>
       {screen === "setup" ? (
         <SetupScreen
+          onBack={() => setMode("choose")}
           details={details}
           setDetails={setDetails}
           notes={setupNotes}
