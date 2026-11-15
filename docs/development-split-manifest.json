@@ -1,0 +1,31 @@
+{
+  "status": "approved",
+  "dataset": "MuseDataNov9 finalized labels",
+  "notes": "Every session for a participant stays in exactly one role per fold. Confirm this manifest with Samuel before changing status to approved or training.",
+  "folds": [
+    {
+      "fold_id": "fold-1-P0002",
+      "held_out": "P0002",
+      "validation": "P0003",
+      "training": ["P0004", "P001"]
+    },
+    {
+      "fold_id": "fold-2-P0003",
+      "held_out": "P0003",
+      "validation": "P0004",
+      "training": ["P0002", "P001"]
+    },
+    {
+      "fold_id": "fold-3-P0004",
+      "held_out": "P0004",
+      "validation": "P001",
+      "training": ["P0002", "P0003"]
+    },
+    {
+      "fold_id": "fold-4-P001",
+      "held_out": "P001",
+      "validation": "P0002",
+      "training": ["P0003", "P0004"]
+    }
+  ]
+}
