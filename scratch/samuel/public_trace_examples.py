@@ -5,6 +5,7 @@ Raw files and analyst-only plots remain under ignored data/public_muse/.
 """
 
 import argparse
+from dataclasses import replace
 import hashlib
 import html
 import io
@@ -23,6 +24,56 @@ RUN = ROOT / "part3-2s"
 IMPORTER_REF = "54ad8e17a2e8036f2ad03041df8084f12bfddfee"
 ARCHIVES = (("sourcedata", 58088461, 400410665, "_task-BT_acq-Muse2_eeg.edf"),
             ("derivatives", 61393426, 679195668, "_task-BT_acq-BLP_eeg.mat"))
+
+
+def edf_event_times(annotations, first_time=0.0):
+    """Return the four BT boundaries in the pinned window generator's codes."""
+    marker_codes = {
+        "OVTK_StimulationId_Number_00": 1,  # experiment_start
+        "OVTK_StimulationId_Number_01": 2,  # task_start
+        "OVTK_StimulationId_Number_03": 4,  # task_end
+        "OVTK_StimulationId_Number_04": 5,  # experiment_end
+    }
+    events = {}
+    for annotation in annotations:
+        code = marker_codes.get(annotation["description"])
+        if code is None:
+            continue
+        onset = float(annotation["onset"]) - first_time
+        if code in events or not math.isfinite(onset) or onset < 0:
+            raise ValueError(f"Invalid or duplicate EDF task boundary: {annotation['description']}")
+        events[code] = onset
+    codes = (1, 2, 4, 5)
+    if missing := set(codes) - events.keys():
+        raise ValueError(f"Missing required EDF event boundaries: {sorted(missing)}")
+    times = [events[code] for code in codes]
+    if any(left >= right for left, right in zip(times, times[1:])):
+        raise ValueError("EDF task boundaries are out of order")
+    return events
+
+
+def import_edf_windows(importer, edf, window_length_s):
+    """Adapt the pinned importer to the task markers in its own EEG file."""
+    import mne
+    from eeg_app.window_comparison import annotated_gaps
+
+    raw = mne.io.read_raw_edf(edf, preload=False, verbose="ERROR")
+    try:
+        events = edf_event_times(raw.annotations, raw.first_time)
+        gaps = annotated_gaps(raw.annotations)
+    finally:
+        raw.close()
+    read_event_times = importer.read_event_times
+    try:
+        # The pinned importer calls this hook once before reading EEG from edf.
+        importer.read_event_times = lambda _path: events
+        imported = importer.import_public_muse_recording(edf, edf, window_length_s=window_length_s)
+    finally:
+        importer.read_event_times = read_event_times
+    windows = tuple(replace(window, target_provenance={**window.target_provenance,
+                    "source": "muse_edf_annotations", "edf_file": edf.name})
+                    for window in imported.windows)
+    return replace(imported, windows=windows), gaps, events
 
 
 class RangeArchive(io.RawIOBase):
@@ -140,16 +191,20 @@ def render_example(window, example, output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--download", action="store_true", help="Retrieve the two participants' matching public files.")
+    parser.add_argument("--edf-comparison", type=Path, help="Directory from a comparison run using EDF markers.")
     args = parser.parse_args()
-    report = json.loads((RUN / "report.json").read_text())
-    protected_hashes = {name: hashlib.sha256((RUN / name).read_bytes()).hexdigest()
+    if args.edf_comparison and args.download:
+        parser.error("--edf-comparison uses the local EDF recordings.")
+    run = args.edf_comparison / "2s" if args.edf_comparison else RUN
+    report = json.loads((run / "report.json").read_text())
+    protected_hashes = {name: hashlib.sha256((run / name).read_bytes()).hexdigest()
                         for name in ("settings.json", "predictions.json")}
     candidates = report["trace_candidates"]
     participants = {example["participant_id"] for example in candidates}
     if args.download:
         download_examples(participants)
     source = subprocess.check_output(["git", "show", f"{IMPORTER_REF}:eeg_app/public_muse.py"])
-    output = RUN / "analyst-traces"
+    output = run / "analyst-traces"
     output.mkdir(exist_ok=False)
     (output / "importer-source.py").write_bytes(source)
     importer = types.ModuleType("eeg_app._trace_example_importer")
@@ -158,7 +213,7 @@ def main():
     from eeg_app.math_pipeline import extract_window_features
     from eeg_app.math_detector import DetectorSettings, predict_window
     settings = DetectorSettings.from_dict(report["settings"])
-    export_path = ROOT / "exports/features-2s.jsonl"
+    export_path = ((args.edf_comparison if args.edf_comparison else ROOT / "exports") / "features-2s.jsonl")
     export_bytes = export_path.read_bytes()
     if hashlib.sha256(export_bytes).hexdigest() != report["source_export_sha256"]:
         raise ValueError("Export differs from the Part 3 run")
@@ -166,8 +221,11 @@ def main():
     windows = {}
     for participant in sorted(participants):
         edf = ROOT / "trace-inputs/sourcedata" / participant / f"{participant}_task-BT_acq-Muse2_eeg.edf"
-        mat = ROOT / "trace-inputs/derivatives" / participant / f"{participant}_task-BT_acq-BLP_eeg.mat"
-        imported = importer.import_public_muse_recording(edf, mat, window_length_s=2)
+        if args.edf_comparison:
+            imported, _, _ = import_edf_windows(importer, edf, window_length_s=2)
+        else:
+            mat = ROOT / "trace-inputs/derivatives" / participant / f"{participant}_task-BT_acq-BLP_eeg.mat"
+            imported = importer.import_public_muse_recording(edf, mat, window_length_s=2)
         windows.update({window.window_id: window for window in imported.windows})
     checks = []
     links = []
@@ -175,7 +233,8 @@ def main():
         window = windows[example["window_id"]]
         reference = records[window.window_id]
         if (not window.is_valid or window.start_time_s != example["start_time_s"]
-                or window.end_time_s != example["end_time_s"] or window.weak_target != reference["weak_target"]):
+                or window.end_time_s != example["end_time_s"] or window.weak_target != reference["weak_target"]
+                or dict(window.target_provenance) != reference["target_provenance"]):
             raise ValueError(f"Window identity/interval/validity mismatch: {window.window_id}")
         recalculated = extract_window_features(window, flatline_tolerance_uv=0.1)
         verify_features(recalculated["features"], reference["features"])
@@ -192,6 +251,7 @@ def main():
                      f'<img src="{filename}" alt="Four raw EEG channel traces" style="max-width:100%">')
         print(f"Verified {window.window_id}: 24 features and original decision match", flush=True)
     verification = {"importer_commit": IMPORTER_REF, "importer_source_sha256": hashlib.sha256(source).hexdigest(),
+                    "marker_source": "muse_edf_annotations" if args.edf_comparison else "companion_blp_mat",
                     "flatline_tolerance_uv": 0.1, "source_export_sha256": report["source_export_sha256"],
                     "unit_convention": "Shared public Muse importer microvolt convention",
                     "relative_tolerance": 1e-9, "absolute_tolerance": 1e-10, "examples": checks,
@@ -202,13 +262,13 @@ def main():
                                        '<p>Do not share with blinded reviewers. These examples are not human artifact labels.</p>'
                                        + "".join(links), encoding="utf-8")
     for name, original_hash in protected_hashes.items():
-        if hashlib.sha256((RUN / name).read_bytes()).hexdigest() != original_hash:
+        if hashlib.sha256((run / name).read_bytes()).hexdigest() != original_hash:
             raise AssertionError(f"Part 3 {name} changed during trace verification")
     report["trace_backed_examples_complete"] = True
     report["trace_candidates"] = checks
     report["trace_verification_file"] = "analyst-traces/verification.json"
-    (RUN / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"Four trace-backed examples saved under {output}")
+    (run / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"{len(checks)} trace-backed examples saved under {output}")
 
 
 if __name__ == "__main__":

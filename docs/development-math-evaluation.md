@@ -94,5 +94,6 @@ had already been reviewed, the published held-out comparison keeps the
 original rule and settings. The private rule report saves the per-fold
 thresholds and validation metrics.
 
-The public-data rerun in PR #27 awaits Namit's importer that reads the
-Muse EDF's own markers and the regenerated 2-, 4-, and 8-second exports.
+The [public Muse rerun](public-window-length-comparison.md) uses event
+annotations from the local EDFs. It records the pinned window generator,
+the local marker adapter, and the commands used to regenerate those results.
