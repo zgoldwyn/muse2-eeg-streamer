@@ -2,7 +2,25 @@
 
 import unittest
 
-from scratch.samuel.public_trace_examples import verify_features
+from scratch.samuel.public_trace_examples import edf_event_times, verify_features
+
+
+class EdfMarkerTests(unittest.TestCase):
+    def setUp(self):
+        self.annotations = [{"description": f"OVTK_StimulationId_Number_{code:02}", "onset": onset}
+                            for code, onset in [(0, 6), (1, 66), (2, 69), (2, 72), (3, 129), (4, 189)]]
+
+    def test_embedded_boundary_times_ignore_repeated_beeps(self):
+        self.assertEqual(edf_event_times(self.annotations, first_time=5), {1: 1, 2: 61, 4: 124, 5: 184})
+
+    def test_missing_duplicate_and_out_of_order_boundaries_fail(self):
+        with self.assertRaisesRegex(ValueError, "Missing"):
+            edf_event_times(self.annotations[:-1])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            edf_event_times(self.annotations + [self.annotations[1]])
+        self.annotations[-1]["onset"] = 100
+        with self.assertRaisesRegex(ValueError, "out of order"):
+            edf_event_times(self.annotations)
 
 
 class TraceFeatureVerificationTests(unittest.TestCase):

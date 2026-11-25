@@ -16,14 +16,14 @@ from eeg_app.math_detector import DetectorSettings, predict_records
 from eeg_app.math_pipeline import extract_window_features
 from eeg_app.public_math_run import prepare_run, save_run
 from eeg_app.window_comparison import annotated_gaps, guard_window, training_stability
-from .public_trace_examples import IMPORTER_REF, verify_features
+from .public_trace_examples import IMPORTER_REF, import_edf_windows, verify_features
 
 PARTICIPANTS = ("sub-01", "sub-08", "sub-09", "sub-10")
 TRAINING = PARTICIPANTS[:3]
 HELDOUT = PARTICIPANTS[3:]
 
 
-def calculate_job(root_string, output_string, participant, length, source):
+def calculate_job(root_string, output_string, participant, length, source, edf_markers=False):
     import mne
     root, output = Path(root_string), Path(output_string)
     importer = types.ModuleType("eeg_app._window_comparison_importer")
@@ -36,13 +36,22 @@ def calculate_job(root_string, output_string, participant, length, source):
         reserved = stream.read(44).decode("ascii").strip()
     if reserved.startswith("EDF+D"):
         raise ValueError("Discontinuous EDF+D needs a gap-preserving importer before comparison")
-    raw = mne.io.read_raw_edf(edf, preload=False, verbose="ERROR")
-    gaps = annotated_gaps(raw.annotations)
-    raw.close()
-    imported = importer.import_public_muse_recording(edf, mat, window_length_s=length)
-    export_content = (root / f"exports/features-{length}s.jsonl").read_bytes()
-    references = {record["window_id"]: record for record in map(json.loads, export_content.decode().splitlines())
-                  if record["participant_id"] == participant}
+    if edf_markers:
+        imported, gaps, events = import_edf_windows(importer, edf, length)
+        references, export_sha256 = None, None
+        source_paths = (edf,)
+    else:
+        raw = mne.io.read_raw_edf(edf, preload=False, verbose="ERROR")
+        try:
+            gaps = annotated_gaps(raw.annotations)
+        finally:
+            raw.close()
+        imported = importer.import_public_muse_recording(edf, mat, window_length_s=length)
+        export_content = (root / f"exports/features-{length}s.jsonl").read_bytes()
+        references = {record["window_id"]: record for record in map(json.loads, export_content.decode().splitlines())
+                      if record["participant_id"] == participant}
+        export_sha256 = hashlib.sha256(export_content).hexdigest()
+        events, source_paths = None, (edf, mat)
     records, exclusions, audit = [], [], []
     for original in imported.windows:
         window = guard_window(original, gaps)
@@ -59,22 +68,25 @@ def calculate_job(root_string, output_string, participant, length, source):
                   "sample_rate_hz": window.nominal_sample_rate_hz,
                   "features": feature_record["features"], "weak_target": window.weak_target,
                   "target_provenance": dict(window.target_provenance)}
-        reference = references[window.window_id]
-        if {k: v for k, v in record.items() if k != "features"} != {k: v for k, v in reference.items() if k != "features"}:
-            raise ValueError(f"Export identity/metadata differs: {window.window_id}")
-        verify_features(record["features"], reference["features"])
+        if references is not None:
+            reference = references[window.window_id]
+            if {k: v for k, v in record.items() if k != "features"} != {k: v for k, v in reference.items() if k != "features"}:
+                raise ValueError(f"Export identity/metadata differs: {window.window_id}")
+            verify_features(record["features"], reference["features"])
         records.append(record)
         audit.append({key: value for key, value in feature_record.items() if key != "features"})
         if len(records) % 15 == 0:
             print(f"{participant} / {length}s: recalculated {len(records)} windows", flush=True)
     excluded_ids = {row["window_id"] for row in exclusions}
-    if set(references) - excluded_ids != {row["window_id"] for row in records}:
+    if references is not None and set(references) - excluded_ids != {row["window_id"] for row in records}:
         raise ValueError("Raw/extracted window set differs from Namit's export")
     result = {"participant_id": participant, "window_length_s": length, "records": records,
               "exclusions": exclusions, "feature_audit": audit, "explicit_gaps": gaps,
               "edf_reserved": reserved, "source_hashes": {
-                  str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in (edf, mat)},
-              "export_sha256": hashlib.sha256(export_content).hexdigest()}
+                  str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths},
+              "export_sha256": export_sha256}
+    if events is not None:
+        result["edf_boundary_times_s"] = events
     (output / f"{participant}-{length}s.json").write_text(json.dumps(result, indent=2, allow_nan=False), encoding="utf-8")
     return result
 
@@ -84,6 +96,7 @@ def main():
     parser.add_argument("--root", type=Path, default=Path("data/public_muse"))
     parser.add_argument("--output-dir", type=Path, default=Path("data/public_muse/part4-window-comparison"))
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--edf-markers", action="store_true", help="Use markers embedded in the EEG recording.")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=False)
     jobs_dir = args.output_dir / "recalculation"
@@ -92,7 +105,7 @@ def main():
     (args.output_dir / "importer-source.py").write_bytes(source)
     results = []
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        jobs = [pool.submit(calculate_job, str(args.root), str(jobs_dir), participant, length, source)
+        jobs = [pool.submit(calculate_job, str(args.root), str(jobs_dir), participant, length, source, args.edf_markers)
                 for length in (2, 4, 8) for participant in PARTICIPANTS]
         for job in as_completed(jobs):
             result = job.result()
@@ -103,6 +116,10 @@ def main():
                "heldout_participants": list(HELDOUT), "percentile": 95,
                "interpretation": "Provisional development settings; task/rest flagging is not artifact accuracy.",
                "lengths": []}
+    if args.edf_markers:
+        summary["marker_source"] = "muse_edf_annotations"
+        summary["marker_adapter_sha256"] = hashlib.sha256(
+            Path(__file__).with_name("public_trace_examples.py").read_bytes()).hexdigest()
     for length in (2, 4, 8):
         group = sorted((result for result in results if result["window_length_s"] == length),
                        key=lambda result: result["participant_id"])
@@ -115,16 +132,19 @@ def main():
             raise AssertionError("Predictions changed on repeat/reordered input")
         report["loader_exclusions"] = [row for result in group for row in result["exclusions"]]
         report["feature_recalculation"] = "All six features per channel recalculated directly from each length's sample arrays."
-        report["source_export_sha256"] = group[0]["export_sha256"]
+        export_path = args.output_dir / f"features-{length}s.jsonl"
+        export_path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        report["source_export_sha256"] = (hashlib.sha256(export_path.read_bytes()).hexdigest()
+                                          if args.edf_markers else group[0]["export_sha256"])
         save_run(report, args.output_dir / f"{length}s")
-        (args.output_dir / f"features-{length}s.jsonl").write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
         stability = training_stability(records, TRAINING)
         (args.output_dir / f"stability-{length}s.json").write_text(json.dumps(stability, indent=2), encoding="utf-8")
         item = {"window_length_s": length, "usable_windows": len(records),
                 "loader_exclusions": len(report["loader_exclusions"]), "settings": report["settings"],
                 "groups": report["groups"], "stability": stability["summary"],
                 "repeat_and_reordered_predictions_match": True,
-                "recalculated_feature_values_verified": sum(len(record["features"]) for record in records)}
+                ("recalculated_feature_values" if args.edf_markers else "recalculated_feature_values_verified"):
+                    sum(len(record["features"]) for record in records)}
         summary["lengths"].append(item)
         print(json.dumps({k: item[k] for k in ("window_length_s", "usable_windows", "loader_exclusions", "settings", "groups")}), flush=True)
     (args.output_dir / "comparison.json").write_text(json.dumps(summary, indent=2, allow_nan=False), encoding="utf-8")

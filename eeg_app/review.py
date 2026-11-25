@@ -156,62 +156,64 @@ def validate_review_sheet(session_dir: str | Path, sheet_path: str | Path) -> li
     Technical exclusions cannot be overridden by adding them to the human sheet.
     Shape validation alone does not establish reviewer independence or adjudication.
     """
-    windows = load_windows(session_dir)
+    with Path(sheet_path).open(encoding="utf-8-sig", newline="") as stream:
+        return _validate_review_rows(load_windows(session_dir), csv.DictReader(stream))
+
+
+def _validate_review_rows(windows, reader):
     expected = {window.window_id: window for window in windows if window.is_valid}
     excluded = {window.window_id for window in windows if not window.is_valid}
     seen, records, errors = set(), [], []
-    with Path(sheet_path).open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream)
-        columns = reader.fieldnames or []
-        if len(columns) != len(set(columns)):
-            raise ValueError("Review sheet has duplicate column names.")
-        missing_columns = set(REVIEW_COLUMNS) - set(columns)
-        if missing_columns:
-            raise ValueError("Review sheet missing columns: " + ", ".join(sorted(missing_columns)))
-        for line, row in enumerate(reader, start=2):
-            if None in row or any(value is None for value in row.values()):
-                errors.append(f"Row {line}: wrong number of CSV fields.")
-                continue
-            row = {name: value.strip() for name, value in row.items()}
-            window_id = row["window_id"]
-            prefix = f"Row {line}, window {window_id!r}"
-            if window_id in seen:
-                errors.append(f"{prefix}: duplicate window ID.")
-                continue
-            seen.add(window_id)
-            if window_id in excluded:
-                errors.append(f"{prefix}: technically invalid window belongs in the loader exclusion list.")
-                continue
-            if window_id not in expected:
-                errors.append(f"{prefix}: unknown window ID.")
-                continue
-            window = expected[window_id]
-            if row["session_id"] != window.session_id:
-                errors.append(f"{prefix}: session ID does not match the saved session.")
-            for name in ("start_time_s", "end_time_s"):
-                try:
-                    value = float(row[name])
-                except ValueError:
-                    value = math.nan
-                if not math.isfinite(value) or not math.isclose(value, getattr(window, name), rel_tol=0, abs_tol=1e-9):
-                    errors.append(f"{prefix}: {name} does not match the loader interval.")
-            if not row["label"]:
-                errors.append(f"{prefix}: missing required human label.")
-            elif row["label"] not in VALID_REFERENCE_LABELS:
-                errors.append(f"{prefix}: unsupported label {row['label']!r}; use clean, artifact, uncertain, or invalid.")
-            if not row["reviewer_id"]:
-                errors.append(f"{prefix}: missing required reviewer ID.")
-            affected = [value.strip() for value in row["affected_channels"].split(";") if value.strip()]
-            if set(affected) - set(REQUIRED_CHANNELS):
-                errors.append(f"{prefix}: affected_channels must use TP9;AF7;AF8;TP10.")
-            records.append({
-                "session_id": window.session_id, "window_id": window.window_id,
-                "start_time_s": window.start_time_s, "end_time_s": window.end_time_s,
-                "reviewer_id": row["reviewer_id"], "label": row["label"],
-                "suspected_subtype": row["suspected_subtype"], "affected_channels": affected,
-                "evidence_notes": row["evidence_notes"], "uncertainty": row["uncertainty"],
-                "label_source": "human_review",
-            })
+    columns = reader.fieldnames or []
+    if len(columns) != len(set(columns)):
+        raise ValueError("Review sheet has duplicate column names.")
+    missing_columns = set(REVIEW_COLUMNS) - set(columns)
+    if missing_columns:
+        raise ValueError("Review sheet missing columns: " + ", ".join(sorted(missing_columns)))
+    for line, row in enumerate(reader, start=2):
+        if None in row or any(value is None for value in row.values()):
+            errors.append(f"Row {line}: wrong number of CSV fields.")
+            continue
+        row = {name: value.strip() for name, value in row.items()}
+        window_id = row["window_id"]
+        prefix = f"Row {line}, window {window_id!r}"
+        if window_id in seen:
+            errors.append(f"{prefix}: duplicate window ID.")
+            continue
+        seen.add(window_id)
+        if window_id in excluded:
+            errors.append(f"{prefix}: technically invalid window belongs in the loader exclusion list.")
+            continue
+        if window_id not in expected:
+            errors.append(f"{prefix}: unknown window ID.")
+            continue
+        window = expected[window_id]
+        if row["session_id"] != window.session_id:
+            errors.append(f"{prefix}: session ID does not match the saved session.")
+        for name in ("start_time_s", "end_time_s"):
+            try:
+                value = float(row[name])
+            except ValueError:
+                value = math.nan
+            if not math.isfinite(value) or not math.isclose(value, getattr(window, name), rel_tol=0, abs_tol=1e-9):
+                errors.append(f"{prefix}: {name} does not match the loader interval.")
+        if not row["label"]:
+            errors.append(f"{prefix}: missing required human label.")
+        elif row["label"] not in VALID_REFERENCE_LABELS:
+            errors.append(f"{prefix}: unsupported label {row['label']!r}; use clean, artifact, uncertain, or invalid.")
+        if not row["reviewer_id"]:
+            errors.append(f"{prefix}: missing required reviewer ID.")
+        affected = [value.strip() for value in row["affected_channels"].split(";") if value.strip()]
+        if set(affected) - set(REQUIRED_CHANNELS):
+            errors.append(f"{prefix}: affected_channels must use TP9;AF7;AF8;TP10.")
+        records.append({
+            "session_id": window.session_id, "window_id": window.window_id,
+            "start_time_s": window.start_time_s, "end_time_s": window.end_time_s,
+            "reviewer_id": row["reviewer_id"], "label": row["label"],
+            "suspected_subtype": row["suspected_subtype"], "affected_channels": affected,
+            "evidence_notes": row["evidence_notes"], "uncertainty": row["uncertainty"],
+            "label_source": "human_review",
+        })
     for window_id in expected.keys() - seen:
         errors.append(f"Missing review row and required label for window {window_id!r}.")
     if errors:

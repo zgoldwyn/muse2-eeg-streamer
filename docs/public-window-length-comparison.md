@@ -5,15 +5,36 @@ window generator, and participant split. Results describe **provisional
 task/rest flagging**, not artifact-detection accuracy. No human labels or
 sealed sessions were used, and no final window length was selected.
 
+## Muse event marker follow-up
+
+The local rerun reads EEG and event annotations from each Muse EDF. It
+supplies those boundaries to the window generator from importer commit
+`54ad8e17a2e8036f2ad03041df8084f12bfddfee` through
+`scratch/samuel/public_trace_examples.py`. The rerun records the marker
+adapter's SHA-256, the EDF hashes, and the extracted boundary times. New
+exports identify the source as `muse_edf_annotations`.
+
+The four Muse EDFs had experiment and task boundaries at 1, 61, 124, and
+184 seconds, matching the previous run. The rerun reproduced 360, 176, and
+80 usable windows at 2, 4, and 8 seconds. All 14,784 recalculated feature
+values matched exactly, along with window IDs, intervals, exclusions,
+thresholds, task/rest summaries, and detector decisions. The four
+two-second examples were reverified and rendered under
+`muse-marker-rerun/2s/analyst-traces/`. Their IDs and observations match
+the [example table](public-math-run.md#trace-backed-examples).
+
+This local implementation uses the window generator in
+[PR #25](https://github.com/zgoldwyn/muse2-eeg-streamer/pull/25)
+and the marker adapter described above.
+
 ## Shared inputs and recalculation
 
 Training participants are `sub-01`, `sub-08`, and `sub-09`; `sub-10` remains
 held out. This is the split documented in Namit's handoff.
 
-For each participant, use the matching BT Muse2 EDF and BLP MAT event file
-under local ignored `data/public_muse/trace-inputs/`. The remaining two
-training participants' matching files were retrieved for this comparison;
-Part 3 had needed raw files for only two participants' examples.
+For each participant, use the BT Muse2 EDF under
+`data/public_muse/trace-inputs/sourcedata/<participant>/`. The earlier run
+used the companion BLP MAT event file and the supplied feature exports.
 
 The runner pins Namit's importer at
 `54ad8e17a2e8036f2ad03041df8084f12bfddfee`. It uses that function separately
@@ -30,15 +51,10 @@ standard deviation and Pearson kurtosis retain their existing definitions.
 Settings, actual entropy tolerances, units, and unavailable-value reasons
 are retained separately in each recalculation audit.
 
-Recalculated IDs, session/participant IDs, intervals, sample rates, weak
-targets, provenance, and feature keys must match Namit's unedited exports.
-Numeric comparisons use relative tolerance 1e-9 and absolute tolerance 1e-10.
-The detector accepts those export fields directly; no manual field renaming
-or new target encoding is involved.
-
-All **14,784 feature comparisons passed** across 616 accepted windows. Saved
-predictions retained every accepted ID and excluded every loader-rejected ID.
-Repeated predictions with reversed input order matched by ID at all lengths.
+The original recomputation verified all 14,784 feature values across the
+616 accepted windows against Namit's exports. Numeric checks use relative
+tolerance 1e-9 and absolute tolerance 1e-10. The remaining run settings
+and exclusions are reported at each length.
 
 Values retain Namit's dataset-specific microvolt convention. EDF physical
 dimension headers are unspecified (`n/a`), so matching the exports establishes
@@ -146,12 +162,13 @@ that every feature or the detector improves with longer windows.
 
 Use the project's virtual environment with `mne` and `h5py` installed. The
 pinned importer commit must be available in the local Git object database.
-Put the three original feature exports in `data/public_muse/exports/` and
-the four matching EDF/MAT pairs in `trace-inputs/` as above. This comparison
-command performs no downloads and requires a new output directory:
+Place the four EDFs as described above. The following commands use local
+files and require a new comparison output directory:
 
 ```text
-python -m scratch.samuel.compare_public_window_lengths --output-dir data/public_muse/part4-window-comparison
+python -m scratch.samuel.compare_public_window_lengths --edf-markers --output-dir data/public_muse/muse-marker-rerun
+python -m scratch.samuel.public_trace_examples --edf-comparison data/public_muse/muse-marker-rerun
+python -m scratch.samuel.summarize_public_features data/public_muse/muse-marker-rerun/features-2s.jsonl data/public_muse/muse-marker-rerun/features-4s.jsonl data/public_muse/muse-marker-rerun/features-8s.jsonl
 python -m unittest discover -s tests
 ```
 

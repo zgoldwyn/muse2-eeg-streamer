@@ -1,5 +1,9 @@
 # Public subset detector run — Part 3
 
+The [Muse EDF marker rerun](public-window-length-comparison.md) gives the
+current commands for reproducing these tables and plots from the recordings'
+own annotations. The workflow below describes the original export-based run.
+
 This run applies the Part 2 rule to Namit's existing 2-second public windows,
 preserving their exact IDs. Results are **task/rest flagging fractions**, not
 artifact recall, precision, or accuracy. There are no independent artifact
