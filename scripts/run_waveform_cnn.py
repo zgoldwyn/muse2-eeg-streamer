@@ -19,6 +19,7 @@ from eeg_app.waveform_cnn import (
     select_participants,
     save_checkpoint,
     train_baseline,
+    validate_split_manifest,
     write_prediction_records,
 )
 
@@ -34,15 +35,18 @@ def main() -> None:
     manifest = json.loads(arguments.split_manifest.read_text(encoding="utf-8"))
     if manifest.get("status") != "approved":
         parser.error("Split manifest is not approved; confirm it with Samuel before training.")
-    folds = manifest.get("folds")
-    if not isinstance(folds, list) or not folds:
-        parser.error("Split manifest must contain a nonempty folds list.")
-
     labels = load_final_review_labels(arguments.labels)
     examples, report = join_reviewed_waveforms(arguments.sessions_dir, labels)
     print("join report:", report)
     if not eligible_examples(examples):
         parser.error("No eligible clean/artifact waveform windows were found.")
+    try:
+        folds = validate_split_manifest(
+            manifest,
+            available_participants={example.participant_id for example in eligible_examples(examples)},
+        )
+    except ValueError as error:
+        parser.error(str(error))
     arguments.output_dir.mkdir(parents=True, exist_ok=True)
 
     for fold in folds:
@@ -50,11 +54,6 @@ def main() -> None:
         held_out = fold["held_out"]
         validation = fold["validation"]
         training = fold["training"]
-        if not isinstance(fold_id, str) or not isinstance(held_out, str) or not isinstance(validation, str):
-            parser.error("Each fold must provide string fold_id, held_out, and validation values.")
-        if not isinstance(training, list) or not all(isinstance(item, str) for item in training):
-            parser.error("Each fold must provide a training list of participant IDs.")
-
         result = train_baseline(
             select_participants(examples, training),
             select_participants(examples, [validation]),

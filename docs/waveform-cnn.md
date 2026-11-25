@@ -42,7 +42,15 @@ to `approved` and run the private-data command below. The output directory is
 also private and must not be committed.
 
 ```bash
+# Fresh virtual environment: installs NumPy and the CPU-compatible PyTorch
+# dependency declared by this project.
 python -m pip install -e .
+
+# If PyTorch was not installed by your platform's package resolver, install it
+# explicitly, then confirm it imports before running training.
+python -m pip install torch
+python -c "import torch; print(torch.__version__)"
+
 python scripts/run_waveform_cnn.py \
   --sessions-dir /path/to/MuseDataNov9/data/sessions \
   --labels /private-labels/review-*-final.csv \

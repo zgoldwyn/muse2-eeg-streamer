@@ -171,7 +171,25 @@ def _participant_id(path: Path) -> str:
 
 
 def _to_example(window: EegWindow, participant_id: str, review: ReviewLabel) -> WaveformExample:
-    samples = np.asarray([window.channel_samples[channel] for channel in CHANNEL_ORDER], dtype=np.float32)
+    # Do not pass ragged channel arrays to NumPy: doing so would raise while
+    # building the batch and hide the actual recording problem. Preserve an
+    # explicit exclusion instead.
+    missing_channels = [channel for channel in CHANNEL_ORDER if channel not in window.channel_samples]
+    if missing_channels:
+        return WaveformExample(
+            window.window_id, window.session_id, participant_id,
+            np.empty((0, 0), dtype=np.float32), None, review.label, False,
+            "missing required channel arrays: " + ", ".join(missing_channels),
+        )
+    channel_arrays = [np.asarray(window.channel_samples[channel], dtype=np.float32) for channel in CHANNEL_ORDER]
+    lengths = tuple(array.size for array in channel_arrays)
+    if len(set(lengths)) != 1:
+        return WaveformExample(
+            window.window_id, window.session_id, participant_id,
+            np.empty((0, 0), dtype=np.float32), None, review.label, False,
+            f"unequal channel sample counts {lengths!r}",
+        )
+    samples = np.stack(channel_arrays, axis=0)
     if samples.shape != (len(CHANNEL_ORDER), SAMPLE_COUNT):
         return WaveformExample(
             window.window_id, window.session_id, participant_id, samples, None,
@@ -224,6 +242,9 @@ def normalize_waveforms(examples: Sequence[WaveformExample], mean: np.ndarray, s
         raise ValueError("Normalizer mean and std must each have one value per required channel.")
     if not examples:
         return np.empty((0, 4, SAMPLE_COUNT), dtype=np.float32)
+    invalid_shapes = [example.window_id for example in examples if example.samples_uv.shape != (4, SAMPLE_COUNT)]
+    if invalid_shapes:
+        raise ValueError("Cannot normalize incomplete waveform arrays: " + ", ".join(invalid_shapes))
     result = (np.stack([example.samples_uv for example in examples]) - mean[None, :, None]) / std[None, :, None]
     if result.shape[1:] != (4, SAMPLE_COUNT) or not np.isfinite(result).all():
         raise ValueError("Normalization produced an invalid waveform batch.")
@@ -242,6 +263,67 @@ def make_rotating_participant_folds(participant_ids: Sequence[str]) -> list[dict
         training = tuple(candidate for candidate in remaining if candidate != validation)
         folds.append({"fold_id": f"fold-{index + 1}-{held_out}", "held_out": held_out, "validation": validation, "training": training})
     return folds
+
+
+def validate_split_manifest(
+    manifest: Mapping[str, object], *, available_participants: Iterable[str] | None = None
+) -> list[dict[str, object]]:
+    """Validate a participant-level split before any model fitting begins.
+
+    Every fold must contain a nonempty training, validation, and held-out role.
+    A participant may appear in only one role within a fold. If the available
+    participant set is supplied from joined data, the manifest must describe
+    exactly that set so missing people cannot be silently omitted.
+    """
+    folds = manifest.get("folds")
+    if not isinstance(folds, list) or not folds:
+        raise ValueError("Split manifest must contain a nonempty folds list.")
+
+    validated: list[dict[str, object]] = []
+    seen_fold_ids: set[str] = set()
+    manifest_participants: set[str] = set()
+    for index, fold in enumerate(folds, start=1):
+        if not isinstance(fold, Mapping):
+            raise ValueError(f"Fold {index} must be an object.")
+        fold_id = fold.get("fold_id")
+        held_out = fold.get("held_out")
+        validation = fold.get("validation")
+        training = fold.get("training")
+        if not isinstance(fold_id, str) or not fold_id.strip():
+            raise ValueError(f"Fold {index} has a missing fold_id.")
+        if fold_id in seen_fold_ids:
+            raise ValueError(f"Duplicate fold ID {fold_id!r}.")
+        seen_fold_ids.add(fold_id)
+        if not isinstance(held_out, str) or not held_out.strip():
+            raise ValueError(f"{fold_id} has a missing held-out participant.")
+        if not isinstance(validation, str) or not validation.strip():
+            raise ValueError(f"{fold_id} has a missing validation participant.")
+        if not isinstance(training, list) or not training:
+            raise ValueError(f"{fold_id} has an empty training split.")
+        if not all(isinstance(participant, str) and participant.strip() for participant in training):
+            raise ValueError(f"{fold_id} training must contain nonempty participant IDs.")
+        roles = {"training": set(training), "validation": {validation}, "held-out": {held_out}}
+        if len(roles["training"]) != len(training):
+            raise ValueError(f"{fold_id} repeats a participant in its training split.")
+        if (roles["training"] & roles["validation"] or roles["training"] & roles["held-out"]
+                or roles["validation"] & roles["held-out"]):
+            raise ValueError(f"{fold_id} has overlapping training, validation, and held-out participants.")
+        manifest_participants.update(roles["training"] | roles["validation"] | roles["held-out"])
+        validated.append({"fold_id": fold_id, "held_out": held_out, "validation": validation, "training": training})
+
+    if available_participants is not None:
+        available = set(available_participants)
+        missing_from_data = manifest_participants - available
+        missing_from_manifest = available - manifest_participants
+        if missing_from_data:
+            raise ValueError("Split manifest references participants missing from labeled data: " + ", ".join(sorted(missing_from_data)))
+        if missing_from_manifest:
+            raise ValueError("Split manifest is missing labeled participants: " + ", ".join(sorted(missing_from_manifest)))
+        for fold in validated:
+            assigned = set(fold["training"]) | {fold["validation"], fold["held_out"]}
+            if assigned != available:
+                raise ValueError(f"{fold['fold_id']} does not assign every available participant exactly once.")
+    return validated
 
 
 def class_counts(examples: Sequence[WaveformExample]) -> dict[str, int]:
