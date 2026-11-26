@@ -8,9 +8,10 @@ saved in `data/private/nov9/comparison.json`, including the original math
 detector's 52/213 artifact recall and 205/205 clean retention.
 
 The new candidate grid uses the same approved 13 training sessions and the
-two original review releases. All candidate limits come from the 205 labeled
-clean windows. Training artifact labels are used to investigate the direction
-of kurtosis and approximate entropy.
+two original review releases. Retuned and added-feature limits come from the
+205 labeled clean windows. The original-recipe control uses all 418 eligible
+training windows, preserving its original calibration procedure. Training
+artifact labels also inform the direction of kurtosis and approximate entropy.
 
 ## Bounded validation plan
 

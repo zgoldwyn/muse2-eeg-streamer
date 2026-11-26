@@ -4,6 +4,9 @@ Status: **proposal; approval and final freeze pending**. The saved artifact is
 [`proposed-math-method.json`](proposed-math-method.json). No reserved repeat
 recordings or labels were inspected for this recommendation.
 
+The [assignment coverage checklist](thanksgiving-assignment-checklist.md) maps
+all five parts to their evidence and identifies approval-dependent work.
+
 ## Recommended rule
 
 Keep the existing, unfiltered two-second windows at 256 Hz, with 512 samples
