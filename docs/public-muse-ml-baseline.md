@@ -16,11 +16,10 @@ its actual recorded sample rate. The reader ignores `Right AUX` and time
 channels. For this public Muse EDF dataset, those four channel arrays are
 already on a microvolt scale, so the importer preserves that scale for feature extraction.
 
-The paired BLP MATLAB file supplies timing markers only. It is MATLAB v7.3,
-read with `h5py`. EEGLAB's one-based event latency is converted as
-`(latency - 1) / event_sample_rate`. Codes 1, 2, 4, and 5 define experiment
-start, task start, task end, and experiment end. Code 3 is a repeated beep and
-is retained as provenance but is not a label boundary.
+The Muse EDF’s own annotations supply the timing markers. The importer maps
+`OVTK_StimulationId_Number_00`, `_01`, `_03`, and `_04` to experiment start,
+task start, task end, and experiment end. It rejects missing, duplicate, or
+out-of-order markers before creating task/rest windows.
 
 ## Windowing and weak targets
 

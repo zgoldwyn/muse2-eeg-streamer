@@ -2,8 +2,7 @@
 
 The raw EDF recordings are local, ignored research inputs.  This module reads
 only TP9, AF7, AF8, and TP10, preserves this public EDF dataset's
-already-microvolt-scale values, and uses
-the matching BLP MATLAB event file only for task/rest timing markers.
+already-microvolt-scale values, and reads task/rest timing markers from annotations stored inside the EDF itself.
 """
 
 from __future__ import annotations
@@ -117,6 +116,41 @@ def read_event_times(mat_path: str | Path) -> dict[int, float]:
         raise ValueError(f"{path} has non-monotonic experiment/task event times.")
     return times
 
+def _read_edf_event_times(
+    annotations: Iterable[Mapping[str, Any]],
+    first_time: float = 0.0,
+) -> dict[int, float]:
+    """Return experiment/task boundary times from Muse EDF annotations."""
+    marker_codes = {
+        "OVTK_StimulationId_Number_00": 1,  # experiment start
+        "OVTK_StimulationId_Number_01": 2,  # task start
+        "OVTK_StimulationId_Number_03": 4,  # task end
+        "OVTK_StimulationId_Number_04": 5,  # experiment end
+    }
+
+    events: dict[int, float] = {}
+    for annotation in annotations:
+        code = marker_codes.get(annotation["description"])
+        if code is None:
+            continue
+
+        onset = float(annotation["onset"]) - first_time
+        if code in events or not isfinite(onset) or onset < 0:
+            raise ValueError(
+                f"Invalid or duplicate EDF task boundary: {annotation['description']}"
+            )
+        events[code] = onset
+
+    required_codes = (1, 2, 4, 5)
+    missing = [code for code in required_codes if code not in events]
+    if missing:
+        raise ValueError(f"Missing required EDF event boundaries: {missing}")
+
+    times = [events[code] for code in required_codes]
+    if any(left >= right for left, right in zip(times, times[1:])):
+        raise ValueError("EDF task boundaries are out of order.")
+
+    return events
 
 def _target_for_interval(start_s: float, end_s: float, events: Mapping[int, float]) -> tuple[str | None, dict[str, Any]]:
     if events[1] <= start_s and end_s <= events[2]:
@@ -134,7 +168,7 @@ def import_public_muse_recording(
     *,
     window_length_s: float = 2.0,
 ) -> PublicMuseImport:
-    """Read one Muse 2 EDF plus matching event file into fixed valid/invalid windows."""
+    """Read one Muse 2 EDF and its embedded event markers into fixed valid/invalid windows."""
 
     if window_length_s not in PUBLIC_WINDOW_LENGTHS_S:
         raise ValueError(f"window_length_s must be one of {PUBLIC_WINDOW_LENGTHS_S}, got {window_length_s!r}.")
@@ -147,8 +181,8 @@ def import_public_muse_recording(
     edf_path = Path(edf_path)
     participant_id = _subject_id(edf_path)
     session_id = edf_path.stem
-    events = read_event_times(mat_path)
     raw = mne.io.read_raw_edf(edf_path, preload=False, verbose="ERROR")
+    events = _read_edf_event_times(raw.annotations, raw.first_time)
     missing_channels = [name for name in REQUIRED_CHANNELS if name not in raw.ch_names]
     if missing_channels:
         raise ValueError(f"{edf_path} is missing required Muse channels: {', '.join(missing_channels)}.")
