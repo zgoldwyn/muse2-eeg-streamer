@@ -1,0 +1,350 @@
+{
+  "schema_version": 1,
+  "settings_id": "samuel-math-p0005-proposal-v1",
+  "status": "proposed_pending_approval",
+  "approval": {
+    "approved_by": null,
+    "approved_at": null
+  },
+  "development_label_status": "preliminary",
+  "channel_order": [
+    "TP9",
+    "AF7",
+    "AF8",
+    "TP10"
+  ],
+  "nominal_sample_rate_hz": 256,
+  "math_policy": {
+    "candidate_id": "p2p-p80-jump-p90",
+    "peak_to_peak_percentile": 80,
+    "max_adjacent_jump_percentile": 90,
+    "settings": {
+      "rule": "peak_to_peak_or_adjacent_jump",
+      "status": "provisional_development",
+      "channel_combination": "any_channel_any_feature",
+      "comparison": ">",
+      "window_length_s": 2.0,
+      "peak_to_peak_uv": 123.63281250000001,
+      "max_adjacent_jump_uv": 52.24609375,
+      "selection_note": "Clean November 8 training-window channel maxima; inclusive percentiles peak-to-peak=80, adjacent-jump=90."
+    },
+    "additional_rules": []
+  },
+  "feature_definition": {
+    "sample_count_per_channel": 512,
+    "continuous": true,
+    "input_units": "microvolts",
+    "flatline_tolerance_uv": 0.1,
+    "entropy_m": 2,
+    "entropy_tolerance_rule": "0.2 * per-channel population standard deviation",
+    "entropy_convention": "natural log, self-matches, inclusive tolerance",
+    "moment_convention": "population moments; Pearson kurtosis without bias correction"
+  },
+  "training_majority_decision": "artifact",
+  "proposed_minimum_clean_retention": 0.8,
+  "minimum_clean_retention_rationale": "Proposal for Zach: use the assignment's 80% comparison target as a minimum useful clean retention, subject to approval; not promised reserved performance.",
+  "selection_objective": {
+    "objective": "Mean of artifact recall and clean retention; ties prefer higher recall, then retention.",
+    "retain_extra_rule": "Require a strict validation objective improvement over the preceding rule.",
+    "bounded_search": "3 original, 16 retuned, then 4 standard deviation, 4 kurtosis, and 4 entropy candidates.",
+    "extension": "Kurtosis and entropy separately extend the retained standard-deviation stage."
+  },
+  "cnn": {
+    "model_version": "waveform-cnn-v1",
+    "preprocessing_version": "channel-zscore-train-only-v1",
+    "cutoff": 0.5,
+    "comparison": ">=",
+    "checkpoint_sha256": null,
+    "source_sha256_lf": null,
+    "inspected_pr_commit": "1fbcd7c9f413f33d30eafa4653dd1c7c9d809683",
+    "inspected_git_blob": "253421d047c711401560cadf273cdba1e1a3cf3e",
+    "validation_run_summary": {
+      "run": "P0005 preliminary CNN validation",
+      "training_participants": [
+        "P0001",
+        "P0003"
+      ],
+      "validation_participant": "P0005",
+      "label_note": "P0005 labels are preliminary pending independent-review reconciliation.",
+      "best_epoch": 40,
+      "validation_loss": 0.46462157368659973,
+      "validation_windows": 88,
+      "training_windows": 89,
+      "true_positive": 35,
+      "true_negative": 41,
+      "false_positive": 12,
+      "false_negative": 0,
+      "accuracy": 0.8636363636363636,
+      "precision": 0.7446808510638298,
+      "recall": 1.0,
+      "f1": 0.8536585365853658
+    }
+  },
+  "code_base_commit": "e741d2c42b4b3f032e388605ecf2b04a04d8e08f",
+  "source_hash_convention": "SHA-256 of UTF-8 source bytes with CRLF normalized to LF",
+  "source_sha256_lf": {
+    "eeg_app/features.py": "a909f08e9a7ebe8136674b0e251e4371cd255498f36ba5828f776414899d5399",
+    "eeg_app/preprocessing.py": "bd00fa6c5d545e9c32df8e9f8a0362ae9ec4da0c58abc62f475b61d4bd6952f2",
+    "eeg_app/dataset.py": "c4f5c877a17acfee713500d7eb83112006b8b818647bcb97001cbe32419a4aa2",
+    "eeg_app/review.py": "ac57113c437dc12b6a641108a41d91c3390a8cd6b454679aca13ae086a5182ca",
+    "eeg_app/math_pipeline.py": "6a9be963a9a16aac4e861c49b07705588b19fd2f8b0690d8c358426f16f22d96",
+    "eeg_app/math_detector.py": "fcdee791c57c1f38428bdccd65fc33ff6d3fa72c51c2cc87d33f85e38cd872c9",
+    "eeg_app/rule_search.py": "d2525af4fb40f508c81c122175d875ec25da193ef64b2cb53fd32448ed4f5bc6",
+    "eeg_app/development_math.py": "449b12cabc412aa6952342c58b9222f9b924fe8539511fab625d2802807e669e",
+    "eeg_app/metrics.py": "af8d9fd59836f4856b743eb406e8ccc7f89efefbbda727ed18599f4794b3aaa0",
+    "eeg_app/validation_comparison.py": "db02f889fc0dda5c5339f13a99f77fd6dced54f70ed8c3e22847f534e042efa2",
+    "eeg_app/final_evaluation.py": "1301b8a28a6d4933c3b8f97d643254381fbf77e0070c2ee274b01c1f619a6a3b"
+  },
+  "development_data": {
+    "training_participants": [
+      "P0002",
+      "P0003",
+      "P0004",
+      "P001"
+    ],
+    "training_eligible_windows": 418,
+    "training_clean_windows_for_limits": 205,
+    "training_label_releases": [
+      "FinalSessionAnalyses.zip",
+      "ben-final-sessions.zip"
+    ],
+    "validation_label_releases": [
+      "P0005-reviews.zip"
+    ],
+    "validation_review_zip_sha256": "0d8691b59812ca8de20a57f5fdbdca2d594ff7500290c7cb32c3853fba6ef74c",
+    "validation_role": "P0005 development validation",
+    "comparison_source_sha256": {
+      "training": "46b27ac05ed5cbdd7f62ae5d879865383754fad7a7136135315fd49321566cc3",
+      "grid": "574dfcc16805117c7c40c14e26accc027222f1abafa794d897f34fe5b831888f",
+      "validation": "6bc266982dc4515031699253fa5fd5add9ad27ddf2bf5de90496fe21239c2a65",
+      "cnn_predictions": "00a19fc28eb309fafcc979fc111273ce188f2a60c1810ec6055c9e5b039103b1",
+      "historical_report": "1c002889b2e9579a4b4311034c944abd7a8b6ac2d68c05a877cb3589abba71f8"
+    }
+  },
+  "validation_results": {
+    "math": {
+      "counts": {
+        "true_positives": 35,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_negatives": 53
+      },
+      "metrics": {
+        "recall": {
+          "numerator": 35,
+          "denominator": 35,
+          "value": 1.0
+        },
+        "precision": {
+          "numerator": 35,
+          "denominator": 35,
+          "value": 1.0
+        },
+        "clean_retention": {
+          "numerator": 53,
+          "denominator": 53,
+          "value": 1.0
+        },
+        "accepted_contamination": {
+          "numerator": 0,
+          "denominator": 53,
+          "value": 0.0
+        },
+        "coverage": {
+          "numerator": 53,
+          "denominator": 88,
+          "value": 0.6022727272727273
+        }
+      },
+      "summary": {
+        "total_reference_windows": 111,
+        "eligible_windows": 88,
+        "uncertain_windows_excluded": 20,
+        "invalid_windows_excluded": 3,
+        "accepted_eligible_windows": 53
+      }
+    },
+    "majority_class": {
+      "counts": {
+        "true_positives": 35,
+        "false_negatives": 0,
+        "false_positives": 53,
+        "true_negatives": 0
+      },
+      "metrics": {
+        "recall": {
+          "numerator": 35,
+          "denominator": 35,
+          "value": 1.0
+        },
+        "precision": {
+          "numerator": 35,
+          "denominator": 88,
+          "value": 0.3977272727272727
+        },
+        "clean_retention": {
+          "numerator": 0,
+          "denominator": 53,
+          "value": 0.0
+        },
+        "accepted_contamination": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "coverage": {
+          "numerator": 0,
+          "denominator": 88,
+          "value": 0.0
+        }
+      },
+      "summary": {
+        "total_reference_windows": 111,
+        "eligible_windows": 88,
+        "uncertain_windows_excluded": 20,
+        "invalid_windows_excluded": 3,
+        "accepted_eligible_windows": 0
+      }
+    },
+    "always_clean": {
+      "counts": {
+        "true_positives": 0,
+        "false_negatives": 35,
+        "false_positives": 0,
+        "true_negatives": 53
+      },
+      "metrics": {
+        "recall": {
+          "numerator": 0,
+          "denominator": 35,
+          "value": 0.0
+        },
+        "precision": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "clean_retention": {
+          "numerator": 53,
+          "denominator": 53,
+          "value": 1.0
+        },
+        "accepted_contamination": {
+          "numerator": 35,
+          "denominator": 88,
+          "value": 0.3977272727272727
+        },
+        "coverage": {
+          "numerator": 88,
+          "denominator": 88,
+          "value": 1.0
+        }
+      },
+      "summary": {
+        "total_reference_windows": 111,
+        "eligible_windows": 88,
+        "uncertain_windows_excluded": 20,
+        "invalid_windows_excluded": 3,
+        "accepted_eligible_windows": 88
+      }
+    },
+    "cnn": {
+      "counts": {
+        "true_positives": 35,
+        "false_negatives": 0,
+        "false_positives": 12,
+        "true_negatives": 41
+      },
+      "metrics": {
+        "recall": {
+          "numerator": 35,
+          "denominator": 35,
+          "value": 1.0
+        },
+        "precision": {
+          "numerator": 35,
+          "denominator": 47,
+          "value": 0.7446808510638298
+        },
+        "clean_retention": {
+          "numerator": 41,
+          "denominator": 53,
+          "value": 0.7735849056603774
+        },
+        "accepted_contamination": {
+          "numerator": 0,
+          "denominator": 41,
+          "value": 0.0
+        },
+        "coverage": {
+          "numerator": 41,
+          "denominator": 88,
+          "value": 0.4659090909090909
+        }
+      },
+      "summary": {
+        "total_reference_windows": 111,
+        "eligible_windows": 88,
+        "uncertain_windows_excluded": 20,
+        "invalid_windows_excluded": 3,
+        "accepted_eligible_windows": 41
+      }
+    },
+    "agreement": {
+      "counts": {
+        "true_positives": 35,
+        "false_negatives": 0,
+        "false_positives": 12,
+        "true_negatives": 41
+      },
+      "metrics": {
+        "recall": {
+          "numerator": 35,
+          "denominator": 35,
+          "value": 1.0
+        },
+        "precision": {
+          "numerator": 35,
+          "denominator": 47,
+          "value": 0.7446808510638298
+        },
+        "clean_retention": {
+          "numerator": 41,
+          "denominator": 53,
+          "value": 0.7735849056603774
+        },
+        "accepted_contamination": {
+          "numerator": 0,
+          "denominator": 41,
+          "value": 0.0
+        },
+        "coverage": {
+          "numerator": 41,
+          "denominator": 88,
+          "value": 0.4659090909090909
+        }
+      },
+      "summary": {
+        "total_reference_windows": 111,
+        "eligible_windows": 88,
+        "uncertain_windows_excluded": 20,
+        "invalid_windows_excluded": 3,
+        "accepted_eligible_windows": 41
+      }
+    }
+  },
+  "comparison_report_sha256": "71cd8985a39d4032087f04b4466b291f630686c58a1067ff4ac77bfb53bf0d71",
+  "exclusion_rules": [
+    "Preserve Namit's original two-second window IDs and intervals.",
+    "Exclude loader-invalid windows; preserve every reason; never fill or compress gaps.",
+    "Keep uncertain and human-invalid labels separate from clean/artifact metrics.",
+    "Unavailable required channel features produce an exclusion and an error if an eligible prediction is missing.",
+    "Reject duplicate, unknown, or mismatched IDs and missing eligible predictions."
+  ],
+  "open_items": [
+    "Reconcile P0005 reviews, identify the final label release, and revalidate the fixed candidate grid if labels change.",
+    "Resolve CNN training-set difference: supplied CNN used P0001/P0003 with 89 training windows; math used four approved November 8 participants with 418 eligible windows.",
+    "Pin Namit's final CNN checkpoint hash, normalization, source hash, and complete training/version metadata; checkpoint not included in the supplied validation ZIP.",
+    "Obtain Zach's approval of the exact settings and minimum clean-retention proposal before freezing."
+  ]
+}

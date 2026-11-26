@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from zipfile import ZipFile
 
-from eeg_app.development_math import evaluate, prepare
+from eeg_app.development_math import evaluate, prepare, read_cnn_predictions, read_release
 from eeg_app.review import REVIEW_COLUMNS
 
 
@@ -16,6 +16,38 @@ FIXTURE = Path(__file__).parent / "fixtures/integration/integration-demo-001"
 
 
 class DevelopmentMathTests(unittest.TestCase):
+    def test_native_prediction_zip_accepts_json_lines_with_json_extension(self):
+        rows = [{"window_id": f"synthetic:window-{index:06d}", "decision": decision,
+                 "artifact_score": score}
+                for index, decision, score in ((0, "clean", .1), (1, "artifact", .9))]
+        text = "".join(json.dumps(row) + "\n" for row in rows)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native = root / "validation-predictions.json"
+            native.write_text(text, encoding="utf-8")
+            self.assertEqual(read_cnn_predictions(native), rows)
+            path = root / "output.zip"
+            with ZipFile(path, "w") as archive:
+                archive.writestr("validation-predictions.json", text)
+                archive.writestr("validation-summary.json", json.dumps({"validation_windows": 2}))
+                archive.writestr("__MACOSX/._validation-predictions.json", b"\x80")
+            self.assertEqual(read_cnn_predictions(path), rows)
+            native.write_text(json.dumps(rows), encoding="utf-8")
+            self.assertEqual(read_cnn_predictions(native), rows)
+            native.write_text('{"window_id": "unfinished"\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid prediction JSON/JSONL"):
+                read_cnn_predictions(native)
+
+    def test_review_zip_ignores_macos_resource_forks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "reviews.zip"
+            with ZipFile(path, "w") as archive:
+                archive.writestr("reviews/review.csv",
+                                 "session_id,window_id,label\nsession,window,clean\n")
+                archive.writestr("__MACOSX/reviews/._review.csv", b"\x00\x05\x16\x07\x80")
+                archive.writestr("reviews/._review.csv", b"\x80")
+            self.assertEqual(list(read_release(path)), ["session"])
+
     def test_review_to_fold_comparison(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
