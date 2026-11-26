@@ -8,7 +8,7 @@ import csv
 import io
 import json
 from math import isfinite
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from zipfile import BadZipFile, ZipFile
 
@@ -25,7 +25,9 @@ def read_release(path):
     sheets, seen = {}, set()
     with ZipFile(path) as archive:
         for member in archive.infolist():
-            if member.is_dir() or not member.filename.lower().endswith(".csv"):
+            if (member.is_dir() or not member.filename.lower().endswith(".csv")
+                    or member.filename.startswith("__MACOSX/")
+                    or PurePosixPath(member.filename).name.startswith("._")):
                 continue
             reader = csv.DictReader(io.StringIO(archive.read(member).decode("utf-8-sig"), newline=""))
             fields = reader.fieldnames or []
@@ -234,16 +236,40 @@ def investigate_rules(prepared, evaluation):
 
 
 def read_cnn_predictions(path):
-    """Read the exported JSONL files in Namit's ZIP or a JSON list."""
-    if Path(path).suffix.lower() != ".zip":
-        return read_json(path)
+    """Read JSON arrays or JSON Lines, including prediction files in ZIPs.
+
+    JSON Lines exports sometimes have a .json extension; inspect the content
+    rather than requiring the sender to rename the file.
+    """
+    def parse(text, source):
+        try:
+            records = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                records = [json.loads(line) for line in text.splitlines() if line.strip()]
+            except json.JSONDecodeError as error:
+                raise ValueError(f"{source}: invalid prediction JSON/JSONL: {error}") from error
+        if isinstance(records, dict) and "window_id" in records:
+            records = [records]
+        if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
+            raise ValueError(f"{source}: CNN predictions must contain record objects in JSON or JSONL")
+        return records
+
+    path = Path(path)
+    if path.suffix.lower() != ".zip":
+        return parse(path.read_text(encoding="utf-8-sig"), path)
+    records = []
     with ZipFile(path) as archive:
-        records = [json.loads(line) for member in archive.infolist()
-                   if not member.is_dir() and member.filename.lower().endswith(".jsonl")
-                   and not member.filename.startswith("__MACOSX/")
-                   for line in archive.read(member).decode("utf-8-sig").splitlines() if line.strip()]
+        for member in archive.infolist():
+            name = PurePosixPath(member.filename)
+            if (member.is_dir() or member.filename.startswith("__MACOSX/") or name.name.startswith("._")):
+                continue
+            # Summary JSON documents are metadata, not prediction arrays.
+            if name.suffix.lower() == ".jsonl" or (name.suffix.lower() == ".json"
+                                                    and name.stem.lower().endswith("predictions")):
+                records.extend(parse(archive.read(member).decode("utf-8-sig"), f"{path}:{member.filename}"))
     if not records:
-        raise ValueError(f"{path}: no prediction records in JSONL files")
+        raise ValueError(f"{path}: no prediction records in .jsonl or *predictions.json files")
     return records
 
 
